@@ -20,6 +20,7 @@ export interface Env {
 type PipelineParams = {
 	cycleId: string;
 	isDailyRun: boolean;
+	skipIngestion?: boolean;
 	expansionTarget?: string;
 	expansionFocus?: string;
 };
@@ -119,7 +120,6 @@ async function sha256Hex(input: string): Promise<string> {
 function cleanXmlText(raw: string): string {
 	if (!raw) return '';
 	let text = raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1');
-	text = text.replace(/<[^>]+>/g, ' ');
 	text = text
 		.replace(/&amp;/g, '&')
 		.replace(/&lt;/g, '<')
@@ -132,6 +132,8 @@ function cleanXmlText(raw: string): string {
 		.replace(/&#8221;/g, '"')
 		.replace(/&#8211;/g, '-')
 		.replace(/&nbsp;/g, ' ');
+	// Strip HTML tags again after entity decoding (handles double-encoded HTML in feeds like Middle East Eye)
+	text = text.replace(/<[^>]+>/g, ' ');
 	return text.replace(/\s+/g, ' ').trim();
 }
 
@@ -354,7 +356,7 @@ async function runLlmPrompt(env: Env, systemPrompt: string, userContent: string)
 
 export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams> {
 	async run(event: WorkflowEvent<PipelineParams>, step: WorkflowStep) {
-		const { cycleId, isDailyRun, expansionTarget, expansionFocus } = event.payload;
+		const { cycleId, isDailyRun, skipIngestion, expansionTarget, expansionFocus } = event.payload;
 		const ingestedDate = cycleId.slice(0, 10);
 
 		// Handle on-demand Admin Story Expansion if triggered via /act
@@ -434,127 +436,135 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 			};
 		});
 
-		// Step 2: Fetch and ingest RSS feeds in batches of 10 (7 batches for 70 feeds)
-		const sources = configData.sources;
-		const batchSize = 10;
+		// Step 2: Fetch and ingest RSS feeds in batches of 10, sleeping briefly every 3 batches (30 feeds)
+		// to yield the Worker invocation and get a fresh 50-subrequest budget.
 		let totalIngested = 0;
 
-		for (let i = 0; i < sources.length; i += batchSize) {
-			const batchIndex = Math.floor(i / batchSize);
-			const batchSources = sources.slice(i, i + batchSize);
+		if (!skipIngestion) {
+			const sources = configData.sources;
+			const batchSize = 10;
 
-			const batchCount = await step.do(`ingest-rss-batch-${batchIndex}`, async () => {
-				let ingestedInBatch = 0;
+			for (let i = 0; i < sources.length; i += batchSize) {
+				const batchIndex = Math.floor(i / batchSize);
+				const batchSources = sources.slice(i, i + batchSize);
 
-				const fetchPromises = batchSources.map(async (source) => {
-					const startTime = Date.now();
-					try {
-						const response = await fetch(source.url, {
-							headers: {
-								'User-Agent': 'WorldDailyDiary/1.0 (+https://seaoffate.net)',
-								'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*'
-							},
-							signal: AbortSignal.timeout(10000)
-						});
+				// Yield after batch 2 (30 feeds) and batch 5 (60 feeds) so we never exceed 50 subrequests per invocation
+				if (batchIndex > 0 && batchIndex % 3 === 0) {
+					await step.sleep(`reset-subrequest-quota-${batchIndex}`, '2 seconds');
+				}
 
-						const elapsedMs = Date.now() - startTime;
-						if (!response.ok) {
+				const batchCount = await step.do(`ingest-rss-batch-${batchIndex}`, async () => {
+					let ingestedInBatch = 0;
+
+					const fetchPromises = batchSources.map(async (source) => {
+						const startTime = Date.now();
+						try {
+							const response = await fetch(source.url, {
+								headers: {
+									'User-Agent': 'WorldDailyDiary/1.0 (+https://seaoffate.net)',
+									'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*'
+								},
+								signal: AbortSignal.timeout(10000)
+							});
+
+							const elapsedMs = Date.now() - startTime;
+							if (!response.ok) {
+								await this.env.DB.prepare(`
+									INSERT INTO feed_telemetry (source_id, rss_name, feed_url, total_polls, failed_polls, last_status_code, last_error_reason, last_polled_at)
+									VALUES (?, ?, ?, 1, 1, ?, ?, unixepoch())
+									ON CONFLICT(source_id) DO UPDATE SET
+										total_polls = total_polls + 1,
+										failed_polls = failed_polls + 1,
+										last_status_code = excluded.last_status_code,
+										last_error_reason = excluded.last_error_reason,
+										last_polled_at = unixepoch()
+								`).bind(source.id, source.name, source.url, response.status, `HTTP ${response.status}`).run();
+								return [];
+							}
+
+							const xmlText = await response.text();
+							const parsed = await parseFeedXml(xmlText, source, ingestedDate);
+
+							await this.env.DB.prepare(`
+								INSERT INTO feed_telemetry (source_id, rss_name, feed_url, total_polls, successful_polls, avg_response_ms, avg_xml_bytes, total_raw_items, total_fresh_items, total_fluff_filtered, last_status_code, last_polled_at)
+								VALUES (?, ?, ?, 1, 1, ?, ?, ?, ?, ?, 200, unixepoch())
+								ON CONFLICT(source_id) DO UPDATE SET
+									total_polls = total_polls + 1,
+									successful_polls = successful_polls + 1,
+									avg_response_ms = (avg_response_ms + excluded.avg_response_ms) / 2,
+									avg_xml_bytes = (avg_xml_bytes + excluded.avg_xml_bytes) / 2,
+									total_raw_items = total_raw_items + excluded.total_raw_items,
+									total_fresh_items = total_fresh_items + excluded.total_fresh_items,
+									total_fluff_filtered = total_fluff_filtered + excluded.total_fluff_filtered,
+									last_status_code = 200,
+									last_error_reason = NULL,
+									last_polled_at = unixepoch()
+							`).bind(
+								source.id,
+								source.name,
+								source.url,
+								elapsedMs,
+								xmlText.length,
+								parsed.rawCount,
+								parsed.items.length,
+								parsed.fluffCount
+							).run();
+
+							return parsed.items;
+						} catch (err) {
 							await this.env.DB.prepare(`
 								INSERT INTO feed_telemetry (source_id, rss_name, feed_url, total_polls, failed_polls, last_status_code, last_error_reason, last_polled_at)
-								VALUES (?, ?, ?, 1, 1, ?, ?, unixepoch())
+								VALUES (?, ?, ?, 1, 1, 0, ?, unixepoch())
 								ON CONFLICT(source_id) DO UPDATE SET
 									total_polls = total_polls + 1,
 									failed_polls = failed_polls + 1,
-									last_status_code = excluded.last_status_code,
+									last_status_code = 0,
 									last_error_reason = excluded.last_error_reason,
 									last_polled_at = unixepoch()
-							`).bind(source.id, source.name, source.url, response.status, `HTTP ${response.status}`).run();
+							`).bind(source.id, source.name, source.url, String(err).slice(0, 120)).run();
 							return [];
 						}
+					});
 
-						const xmlText = await response.text();
-						const parsed = await parseFeedXml(xmlText, source, ingestedDate);
+					const settled = await Promise.all(fetchPromises);
+					const allArticles = settled.flat();
 
-						await this.env.DB.prepare(`
-							INSERT INTO feed_telemetry (source_id, rss_name, feed_url, total_polls, successful_polls, avg_response_ms, avg_xml_bytes, total_raw_items, total_fresh_items, total_fluff_filtered, last_status_code, last_polled_at)
-							VALUES (?, ?, ?, 1, 1, ?, ?, ?, ?, ?, 200, unixepoch())
-							ON CONFLICT(source_id) DO UPDATE SET
-								total_polls = total_polls + 1,
-								successful_polls = successful_polls + 1,
-								avg_response_ms = (avg_response_ms + excluded.avg_response_ms) / 2,
-								avg_xml_bytes = (avg_xml_bytes + excluded.avg_xml_bytes) / 2,
-								total_raw_items = total_raw_items + excluded.total_raw_items,
-								total_fresh_items = total_fresh_items + excluded.total_fresh_items,
-								total_fluff_filtered = total_fluff_filtered + excluded.total_fluff_filtered,
-								last_status_code = 200,
-								last_error_reason = NULL,
-								last_polled_at = unixepoch()
+					const statements = allArticles.map(art =>
+						this.env.DB.prepare(`
+							INSERT INTO articles (
+								article_id, canonical_url, title, summary, source_id,
+								category_hint, language_code, syndication_velocity, published_at, ingested_date
+							) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+							ON CONFLICT(article_id) DO UPDATE SET
+								syndication_velocity = syndication_velocity + 1,
+								source_id = CASE
+									WHEN INSTR(articles.source_id, excluded.source_id) = 0
+									THEN articles.source_id || ' ; ' || excluded.source_id
+									ELSE articles.source_id
+								END
 						`).bind(
-							source.id,
-							source.name,
-							source.url,
-							elapsedMs,
-							xmlText.length,
-							parsed.rawCount,
-							parsed.items.length,
-							parsed.fluffCount
-						).run();
+							art.article_id,
+							art.canonical_url,
+							art.title,
+							art.summary,
+							art.source_id,
+							art.category_hint,
+							art.language_code,
+							art.published_at,
+							art.ingested_date
+						)
+					);
 
-						return parsed.items;
-					} catch (err) {
-						await this.env.DB.prepare(`
-							INSERT INTO feed_telemetry (source_id, rss_name, feed_url, total_polls, failed_polls, last_status_code, last_error_reason, last_polled_at)
-							VALUES (?, ?, ?, 1, 1, 0, ?, unixepoch())
-							ON CONFLICT(source_id) DO UPDATE SET
-								total_polls = total_polls + 1,
-								failed_polls = failed_polls + 1,
-								last_status_code = 0,
-								last_error_reason = excluded.last_error_reason,
-								last_polled_at = unixepoch()
-						`).bind(source.id, source.name, source.url, String(err).slice(0, 120)).run();
-						return [];
+					if (statements.length > 0) {
+						await this.env.DB.batch(statements);
+						ingestedInBatch = statements.length;
 					}
+
+					return ingestedInBatch;
 				});
 
-				const settled = await Promise.all(fetchPromises);
-				const allArticles = settled.flat();
-
-				// Batch upsert articles into D1; increment syndication_velocity when corroborated
-				const statements = allArticles.map(art =>
-					this.env.DB.prepare(`
-						INSERT INTO articles (
-							article_id, canonical_url, title, summary, source_id,
-							category_hint, language_code, syndication_velocity, published_at, ingested_date
-						) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-						ON CONFLICT(article_id) DO UPDATE SET
-							syndication_velocity = syndication_velocity + 1,
-							source_id = CASE
-								WHEN INSTR(articles.source_id, excluded.source_id) = 0
-								THEN articles.source_id || ' ; ' || excluded.source_id
-								ELSE articles.source_id
-							END
-					`).bind(
-						art.article_id,
-						art.canonical_url,
-						art.title,
-						art.summary,
-						art.source_id,
-						art.category_hint,
-						art.language_code,
-						art.published_at,
-						art.ingested_date
-					)
-				);
-
-				if (statements.length > 0) {
-					await this.env.DB.batch(statements);
-					ingestedInBatch = statements.length;
-				}
-
-				return ingestedInBatch;
-			});
-
-			totalIngested += batchCount;
+				totalIngested += batchCount;
+			}
 		}
 
 		// Record hourly operational telemetry in KV
@@ -571,6 +581,9 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 		}
 
 		// --- 24-HOUR DAILY PUBLISHING BRANCH ---
+
+		// Sleep 2 seconds before starting the Daily Publishing Branch to guarantee a fresh subrequest budget
+		await step.sleep('reset-subrequest-quota-before-daily', '2 seconds');
 
 		// Step 4: Prune articles older than 60 days
 		await step.do('daily-d1-pruning', async () => {
@@ -612,7 +625,6 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 				}
 			}
 
-			// Sort overflow pool by syndication_velocity DESC, then published_at DESC
 			overflowPool.sort((a, b) => {
 				if (b.syndication_velocity !== a.syndication_velocity) {
 					return b.syndication_velocity - a.syndication_velocity;
@@ -639,7 +651,6 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 			categoryMap.set(c.id, c);
 		}
 
-		// Process selected stories in small groups of 5 per step so AI calls stay fast and resilient
 		const aiBatchSize = 5;
 		for (let i = 0; i < selectedArticles.length; i += aiBatchSize) {
 			const batchIndex = Math.floor(i / aiBatchSize);
@@ -651,7 +662,6 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 				for (const article of storyChunk) {
 					const cat = categoryMap.get(article.category_hint) || configData.categoriesConfig.categories[0];
 
-					// Parse source metadata (id|name|region)
 					const sourceSegments = String(article.source_id).split(' ; ').map(s => {
 						const parts = s.split('|');
 						return {
@@ -724,6 +734,9 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 			publishedStoryIds.push(...chunkIds);
 		}
 
+		// Yield again before BookStack publication so the outbound HTTP POST has a fresh invocation
+		await step.sleep('reset-subrequest-quota-before-publish', '2 seconds');
+
 		// Step 7: Daily Copier (Archive to R2, Publish Daily Page to BookStack, Update Control Ledger)
 		const publicationResult = await step.do('daily-copier-publish', async () => {
 			const { results } = await this.env.DB.prepare(`
@@ -738,7 +751,6 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 				return { publishedCount: 0, bookstackPageId: null };
 			}
 
-			// Build the full Daily Edition Markdown
 			const categoryOrder: Array<{ id: string; title: string }> = [
 				{ id: 'general', title: 'World & General News' },
 				{ id: 'tech', title: 'Technology & Engineering' },
@@ -768,22 +780,33 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 
 			// 2. Publish new Daily Page to BookStack (Book ID 317)
 			let bookstackPageId: number | null = null;
-			const bsResponse = await fetch(`${this.env.BOOKSTACK_URL}/api/pages`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					'Authorization': `Token ${this.env.BOOKSTACK_TOKEN_ID}:${this.env.BOOKSTACK_TOKEN_SECRET}`
-				},
-				body: JSON.stringify({
-					book_id: Number(this.env.MASTER_BOOK_ID),
-					name: `Daily Intelligence Diary - ${ingestedDate}`,
-					markdown: dailyMarkdown
-				})
-			});
+			let bookstackStatus = 0;
+			let bookstackError: string | null = null;
 
-			if (bsResponse.ok) {
-				const bsJson: any = await bsResponse.json();
-				bookstackPageId = bsJson.id || null;
+			try {
+				const bsResponse = await fetch(`${this.env.BOOKSTACK_URL}/api/pages`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						'Authorization': `Token ${this.env.BOOKSTACK_TOKEN_ID}:${this.env.BOOKSTACK_TOKEN_SECRET}`
+					},
+					body: JSON.stringify({
+						book_id: Number(this.env.MASTER_BOOK_ID),
+						name: `Daily Intelligence Diary - ${ingestedDate}`,
+						markdown: dailyMarkdown
+					})
+				});
+
+				bookstackStatus = bsResponse.status;
+				if (bsResponse.ok) {
+					const bsJson: any = await bsResponse.json();
+					bookstackPageId = bsJson.id || null;
+				} else {
+					const errText = await bsResponse.text();
+					bookstackError = `HTTP ${bsResponse.status}: ${errText.slice(0, 200)}`;
+				}
+			} catch (err) {
+				bookstackError = String(err);
 			}
 
 			// 3. Mark stories as synced in D1
@@ -798,7 +821,13 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 			// 4. Refresh the Editorial Control Ledger
 			await regenerateControlPage(this.env);
 
-			return { publishedCount: stories.length, bookstackPageId, r2Key };
+			return {
+				publishedCount: stories.length,
+				bookstackPageId,
+				bookstackStatus,
+				bookstackError,
+				r2Key
+			};
 		});
 
 		return {
@@ -829,24 +858,25 @@ export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 
-		// Manual Test Trigger Endpoint: /trigger?key=YOUR_ADMIN_INTERVENTION_KEY&daily=true
+		// Manual Test Trigger Endpoint: /trigger?key=YOUR_KEY&daily=true&skipIngestion=false
 		if (url.pathname === '/trigger') {
 			const key = url.searchParams.get('key');
 			if (!key || key !== env.ADMIN_INTERVENTION_KEY) {
 				return new Response('Unauthorized', { status: 401 });
 			}
 			const isDailyRun = url.searchParams.get('daily') === 'true';
+			const skipIngestion = url.searchParams.get('skipIngestion') === 'true';
 			const now = new Date();
 			const cycleId = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}-${String(now.getUTCHours()).padStart(2, '0')}`;
 			const instanceId = `manual-${cycleId}-${Date.now()}`;
 
 			await env.NEWS_WORKFLOW.create({
 				id: instanceId,
-				params: { cycleId, isDailyRun }
+				params: { cycleId, isDailyRun, skipIngestion }
 			});
 
 			return new Response(
-				JSON.stringify({ status: 'Workflow started', instanceId, cycleId, isDailyRun }, null, 2),
+				JSON.stringify({ status: 'Workflow started', instanceId, cycleId, isDailyRun, skipIngestion }, null, 2),
 				{ headers: { 'Content-Type': 'application/json' } }
 			);
 		}
