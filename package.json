@@ -1,0 +1,16 @@
+{
+  "name": "world-daily-diary",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "start": "wrangler dev",
+    "dev": "wrangler dev",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^5.0.4",
+    "wrangler": "^4.153.0"
+  }
+}
