@@ -67,6 +67,75 @@ export async function verifyActionSignature(storyId: string, action: string, sig
 		return false;
 	}
 }
+// --- BOOKSTACK AUTHORITATIVE PROJECTION ---
+
+async function regenerateControlPage(env: Env): Promise<void> {
+	// Query D1 for the latest stories and extract the 140-character teaser natively
+	const query = `
+		SELECT 
+			story_id,
+			category_id,
+			headline,
+			REPLACE(SUBSTR(markdown_body, 1, 140), char(10), ' ') AS teaser_line,
+			tracking_status,
+			tracking_origin,
+			followup_directive,
+			expansion_count
+		FROM published_stories
+		ORDER BY ingested_date DESC, created_at DESC
+		LIMIT 100;
+	`;
+	
+	const { results } = await env.DB.prepare(query).all();
+	
+	let markdown = `# Editorial Control Ledger\n\n`;
+	markdown += `*Automatically synchronized with Cloudflare D1 state.*\n\n---\n\n`;
+	
+	markdown += `## 📌 Active Follow-Up Queue\n\n`;
+	const activeStories = results.filter((r: any) => r.tracking_status === 1);
+	
+	if (activeStories.length === 0) {
+		markdown += `*No active stories currently being tracked.*\n\n`;
+	} else {
+		for (const story of activeStories) {
+			// Generate signed links for the BookStack page
+			const unfollowSig = await generateActionSignature(story.story_id, 'unfollow', env.ADMIN_INTERVENTION_KEY);
+			const expandSig = await generateActionSignature(story.story_id, 'expand', env.ADMIN_INTERVENTION_KEY);
+			
+			markdown += `### ${story.headline}\n`;
+			markdown += `> _${story.teaser_line}..._\n\n`;
+			markdown += `- **Origin:** ${story.tracking_origin === 'human_override' ? '🧑‍💻 Human Override' : '🤖 LLM Auto'}\n`;
+			markdown += `- **Directive:** ${story.followup_directive}\n`;
+			markdown += `- **Expansions:** ${story.expansion_count}\n`;
+			markdown += `- **Actions:** [Stop Tracking](https://news-admin.seaoffate.net/act?id=${story.story_id}&do=unfollow&sig=${unfollowSig}) | [Request Extended Coverage](https://news-admin.seaoffate.net/act?id=${story.story_id}&do=expand&sig=${expandSig})\n\n`;
+		}
+	}
+	
+	markdown += `---\n\n## 📚 Recent Chronological Ledger\n\n`;
+	for (const story of results) {
+		if (story.tracking_status === 1) continue; // Already at the top
+		
+		const followSig = await generateActionSignature(story.story_id, 'follow', env.ADMIN_INTERVENTION_KEY);
+		markdown += `**${story.headline}**\n`;
+		markdown += `_${story.teaser_line}..._  [Track this Story](https://news-admin.seaoffate.net/act?id=${story.story_id}&do=follow&sig=${followSig})\n\n`;
+	}
+
+	// NOTE: We need a specific Page ID for the control page. 
+	// For now, assume page ID 1000. You will replace this with the real BookStack Page ID.
+	const CONTROL_PAGE_ID = "1000"; 
+
+	// Push the updated Markdown to BookStack
+	await fetch(`${env.BOOKSTACK_URL}/api/pages/${CONTROL_PAGE_ID}`, {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json',
+			'Authorization': `Token ${env.BOOKSTACK_TOKEN_ID}:${env.BOOKSTACK_TOKEN_SECRET}`
+		},
+		body: JSON.stringify({
+			markdown: markdown
+		})
+	});
+}
 
 // --- MASTER WORKFLOW ORCHESTRATOR ---
 
@@ -177,9 +246,43 @@ export default {
 			return new Response(html, { headers: { 'Content-Type': 'text/html' } });
 		} else if (request.method === "POST") {
 			const formData = await request.formData().catch(() => new FormData());
-			const operatorInput = formData.get('directive') || formData.get('focus') || null;
+			const operatorInput = formData.get('directive') || formData.get('focus') || "";
 			
-			return new Response(`Action '${action}' confirmed for ${storyId}. D1 mutation logic pending.`, { status: 200 });
+			if (action === 'follow') {
+				const directive = operatorInput || "Track developments and overnight updates.";
+				await env.DB.prepare(`
+					UPDATE published_stories 
+					SET tracking_status = 1, tracking_origin = 'human_override', followup_directive = ? 
+					WHERE story_id = ?
+				`).bind(directive, storyId).run();
+
+			} else if (action === 'unfollow') {
+				await env.DB.prepare(`
+					UPDATE published_stories 
+					SET tracking_status = 0 
+					WHERE story_id = ?
+				`).bind(storyId).run();
+
+			} else if (action === 'expand') {
+				// We will trigger a new Workflow execution dedicated to the expansion process
+				await env.NEWS_WORKFLOW.create({
+					id: `expansion-${storyId}-${Date.now()}`,
+					params: { 
+						cycleId: 'expansion', 
+						isDailyRun: false,
+						expansionTarget: storyId,
+						expansionFocus: operatorInput
+					}
+				});
+				return new Response("Expansion workflow triggered. The story will be updated shortly.", { status: 200 });
+			}
+
+			// Immediately rebuild the BookStack page so the UI reflects the DB change
+			await regenerateControlPage(env);
+			
+			// Redirect the operator back to the BookStack control page
+			// Note: Replace 1000 with your actual BookStack Control Page ID or URL slug
+			return Response.redirect(`${env.BOOKSTACK_URL}/books/world-daily-diary/page/editorial-control`, 303);
 		}
 
 		return new Response("Method not allowed", { status: 405 });
