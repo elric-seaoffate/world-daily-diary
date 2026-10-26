@@ -60,7 +60,6 @@ interface ParsedArticle {
 	ingested_date: string;
 }
 
-// REPLACE WITH YOUR ACTUAL BOOKSTACK EDITORIAL CONTROL PAGE ID
 const CONTROL_PAGE_ID = "319";
 
 // --- CRYPTOGRAPHIC UTILITIES ---
@@ -132,7 +131,6 @@ function cleanXmlText(raw: string): string {
 		.replace(/&#8221;/g, '"')
 		.replace(/&#8211;/g, '-')
 		.replace(/&nbsp;/g, ' ');
-	// Strip HTML tags again after entity decoding (handles double-encoded HTML in feeds like Middle East Eye)
 	text = text.replace(/<[^>]+>/g, ' ');
 	return text.replace(/\s+/g, ' ').trim();
 }
@@ -160,20 +158,9 @@ function extractLink(block: string): string {
 function isCommercialFluff(title: string, summary: string, url: string): boolean {
 	const combined = `${title} ${summary} ${url}`.toLowerCase();
 	const spamPatterns = [
-		'sponsored',
-		'promo code',
-		'discount code',
-		'best deals',
-		'save $',
-		'% off',
-		'affiliate',
-		'buy now',
-		'gift guide',
-		'black friday',
-		'cyber monday',
-		'wordle hint',
-		'connections hint',
-		'crossword'
+		'sponsored', 'promo code', 'discount code', 'best deals', 'save $', '% off',
+		'affiliate', 'buy now', 'gift guide', 'black friday', 'cyber monday',
+		'wordle hint', 'connections hint', 'crossword'
 	];
 	return spamPatterns.some(pattern => combined.includes(pattern));
 }
@@ -187,9 +174,7 @@ function normalizeStoryKey(title: string, url: string): string {
 		.slice(0, 6)
 		.sort()
 		.join('-');
-	if (cleanedTitle.length >= 10) {
-		return cleanedTitle;
-	}
+	if (cleanedTitle.length >= 10) return cleanedTitle;
 	return url.split('?')[0].toLowerCase();
 }
 
@@ -210,16 +195,14 @@ async function parseFeedXml(xml: string, source: RssSource, ingestedDate: string
 
 	let fluffCount = 0;
 	const parsedItems: ParsedArticle[] = [];
-	const maxItemsPerFeed = 15;
 
-	for (const block of itemBlocks.slice(0, maxItemsPerFeed)) {
+	for (const block of itemBlocks.slice(0, 15)) {
 		const title = cleanXmlText(extractTagContent(block, ['title']));
 		const rawSummary = extractTagContent(block, ['description', 'summary', 'content:encoded', 'content']);
 		const summary = cleanXmlText(rawSummary).slice(0, 800);
 		const link = extractLink(block);
 
 		if (!title || !link) continue;
-
 		if (isCommercialFluff(title, summary, link)) {
 			fluffCount++;
 			continue;
@@ -245,76 +228,39 @@ async function parseFeedXml(xml: string, source: RssSource, ingestedDate: string
 		});
 	}
 
-	return {
-		rawCount: itemBlocks.length,
-		fluffCount,
-		items: parsedItems
-	};
+	return { rawCount: itemBlocks.length, fluffCount, items: parsedItems };
 }
 
 // --- BOOKSTACK AUTHORITATIVE PROJECTION ---
 
 async function regenerateControlPage(env: Env): Promise<void> {
-	const query = `
-		SELECT 
-			story_id,
-			category_id,
-			headline,
-			REPLACE(SUBSTR(markdown_body, 1, 140), char(10), ' ') AS teaser_line,
-			tracking_status,
-			tracking_origin,
-			followup_directive,
-			expansion_count
-		FROM published_stories
-		ORDER BY ingested_date DESC, created_at DESC
-		LIMIT 100;
-	`;
+	try {
+		const query = `
+			SELECT story_id, category_id, headline,
+				REPLACE(SUBSTR(markdown_body, 1, 140), char(10), ' ') AS teaser_line,
+				tracking_status
+			FROM published_stories
+			ORDER BY ingested_date DESC, created_at DESC
+			LIMIT 10;
+		`;
+		const { results } = await env.DB.prepare(query).all();
 
-	const { results } = await env.DB.prepare(query).all();
-
-	let markdown = `# Editorial Control Ledger\n\n`;
-	markdown += `*Automatically synchronized with Cloudflare D1 state.*\n\n---\n\n`;
-
-	markdown += `## Active Follow-Up Queue\n\n`;
-	const activeStories = results.filter((r: any) => r.tracking_status === 1);
-
-	if (activeStories.length === 0) {
-		markdown += `*No active stories currently being tracked.*\n\n`;
-	} else {
-		for (const story of activeStories as any[]) {
-			const unfollowSig = await generateActionSignature(story.story_id, 'unfollow', env.ADMIN_INTERVENTION_KEY);
-			const expandSig = await generateActionSignature(story.story_id, 'expand', env.ADMIN_INTERVENTION_KEY);
-
-			markdown += `### [${story.category_id.toUpperCase()}] ${story.headline}\n`;
-			markdown += `> _${story.teaser_line}..._\n\n`;
-			markdown += `- **Origin:** ${story.tracking_origin === 'human_override' ? 'Human Override' : 'LLM Auto'}\n`;
-			markdown += `- **Directive:** ${story.followup_directive}\n`;
-			markdown += `- **Expansions:** ${story.expansion_count}\n`;
-			markdown += `- **Actions:** [Stop Tracking](https://world-daily-diary.nigel-ferguson10.workers.dev/act?id=${story.story_id}&do=unfollow&sig=${unfollowSig}) | [Request Extended Coverage](https://world-daily-diary.nigel-ferguson10.workers.dev/act?id=${story.story_id}&do=expand&sig=${expandSig})\n\n`;
+		let markdown = `# Editorial Control Ledger\n\n*Automatically synchronized with Cloudflare D1 state.*\n\n---\n\n## Recent Intelligence Stories (${(results || []).length})\n\n`;
+		for (const story of (results || [])) {
+			markdown += `- **[${story.category_id.toUpperCase()}]** ${story.headline}\n  > _${story.teaser_line}..._\n\n`;
 		}
-	}
 
-	markdown += `---\n\n## Recent Chronological Ledger\n\n`;
-	for (const story of results as any[]) {
-		if (story.tracking_status === 1) continue;
-
-		const followSig = await generateActionSignature(story.story_id, 'follow', env.ADMIN_INTERVENTION_KEY);
-		markdown += `**[${story.category_id.toUpperCase()}] ${story.headline}**\n`;
-		markdown += `_${story.teaser_line}..._  [Track this Story](https://world-daily-diary.nigel-ferguson10.workers.dev/act?id=${story.story_id}&do=follow&sig=${followSig})\n\n`;
-	}
-
-	if (CONTROL_PAGE_ID !== "1000") {
-		await fetch(`${env.BOOKSTACK_URL}/api/pages/${CONTROL_PAGE_ID}`, {
-			method: 'PUT',
-			headers: {
-				'Content-Type': 'application/json',
-				'Authorization': `Token ${env.BOOKSTACK_TOKEN_ID}:${env.BOOKSTACK_TOKEN_SECRET}`
-			},
-			body: JSON.stringify({
-				markdown: markdown
-			})
-		});
-	}
+		if (CONTROL_PAGE_ID !== "1000") {
+			await fetch(`${env.BOOKSTACK_URL}/api/pages/${CONTROL_PAGE_ID}`, {
+				method: 'PUT',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Token ${env.BOOKSTACK_TOKEN_ID}:${env.BOOKSTACK_TOKEN_SECRET}`
+				},
+				body: JSON.stringify({ markdown })
+			});
+		}
+	} catch {}
 }
 
 // --- AI INFERENCE HELPER ---
@@ -333,21 +279,7 @@ async function runLlmPrompt(env: Env, systemPrompt: string, userContent: string)
 			return response.response.trim();
 		}
 	} catch (err) {
-		try {
-			const fallback = await env.AI.run('@cf/meta/llama-3-8b-instruct', {
-				messages: [
-					{ role: 'system', content: systemPrompt },
-					{ role: 'user', content: userContent }
-				],
-				max_tokens: 450,
-				temperature: 0.3
-			});
-			if (fallback && typeof fallback.response === 'string') {
-				return fallback.response.trim();
-			}
-		} catch (innerErr) {
-			return `AI synthesis unavailable: ${String(innerErr)}`;
-		}
+		return `AI synthesis unavailable: ${String(err)}`;
 	}
 	return 'Summary unavailable.';
 }
@@ -359,430 +291,174 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 		const { cycleId, isDailyRun, skipIngestion, expansionTarget, expansionFocus } = event.payload;
 		const ingestedDate = cycleId.slice(0, 10);
 
-		// Handle on-demand Admin Story Expansion if triggered via /act
 		if (expansionTarget) {
 			await step.do('expand-tracked-story', async () => {
 				const row: any = await this.env.DB.prepare(
-					`SELECT story_id, headline, markdown_body, sources_json FROM published_stories WHERE story_id = ?`
+					`SELECT story_id, headline, markdown_body FROM published_stories WHERE story_id = ?`
 				).bind(expansionTarget).first();
-
 				if (!row) return;
 
 				const expansionText = await runLlmPrompt(
 					this.env,
-					'You are an investigative intelligence analyst. Expand on the existing report with deeper technical, geopolitical, and systemic context.',
-					`Headline: ${row.headline}\nFocus Directive: ${expansionFocus || 'Provide deeper structural analysis.'}\nExisting Report:\n${row.markdown_body}`
+					'You are an investigative intelligence analyst. Expand on the existing report with deeper context.',
+					`Headline: ${row.headline}\nFocus: ${expansionFocus || 'Deeper analysis'}\nReport:\n${row.markdown_body}`
 				);
 
-				const updatedMarkdown = `${row.markdown_body}\n\n---\n### Extended Coverage (${new Date().toISOString().slice(0, 16)} UTC)\n${expansionText}`;
-
-				await this.env.DB.prepare(`
-					UPDATE published_stories
-					SET markdown_body = ?, expansion_count = expansion_count + 1, last_expanded_at = unixepoch()
-					WHERE story_id = ?
-				`).bind(updatedMarkdown, expansionTarget).run();
-
+				const updatedMarkdown = `${row.markdown_body}\n\n---\n### Extended Coverage\n${expansionText}`;
+				await this.env.DB.prepare(`UPDATE published_stories SET markdown_body = ?, expansion_count = expansion_count + 1 WHERE story_id = ?`).bind(updatedMarkdown, expansionTarget).run();
 				await regenerateControlPage(this.env);
 			});
 			return { status: 'Expansion complete', expansionTarget };
 		}
 
-		// Step 1: Read RSS sources and Category quotas from CONFIG_KV
 		const configData = await step.do('read-config-kv', async () => {
 			const rssData = (await this.env.CONFIG_KV.get('config-rss-sources', 'json')) as { sources: RssSource[] } | null;
 			const catData = (await this.env.CONFIG_KV.get('config-categories', 'json')) as CategoriesConfigFile | null;
-
-			const defaultCategories: CategoriesConfigFile = {
-				global_max_stories: 25,
-				categories: [
-					{
-						id: 'general',
-						name: 'World & General News',
-						min_stories: 5,
-						max_stories: 20,
-						prompt_event: 'Summarize the core news event clearly and factually in 2 concise paragraphs.',
-						prompt_analysis: 'Analyze the reporting source, its geographic region, and the framing of this story. Identify potential media bias, regional perspective, and any omitted context.'
-					},
-					{
-						id: 'tech',
-						name: 'Technology & Engineering',
-						min_stories: 2,
-						max_stories: 10,
-						prompt_event: 'Report the technical event, product release, or engineering milestone factually in 2 concise paragraphs.',
-						prompt_analysis: 'Evaluate the long-term industry and architectural impact, open-source vs. proprietary implications, and adoption hurdles.'
-					},
-					{
-						id: 'cyber',
-						name: 'Cybersecurity & Threat Intel',
-						min_stories: 2,
-						max_stories: 10,
-						prompt_event: 'Detail the security incident, vulnerability, or threat campaign factually in 2 concise paragraphs.',
-						prompt_analysis: 'Analyze the attack vector, threat actor TTPs, affected systems, and concrete defensive mitigations.'
-					},
-					{
-						id: 'ai',
-						name: 'Artificial Intelligence',
-						min_stories: 2,
-						max_stories: 10,
-						prompt_event: 'Summarize the AI model release, research paper, or policy development factually in 2 concise paragraphs.',
-						prompt_analysis: 'Separate technical reality from marketing hype. Analyze compute/VRAM constraints, open-weights vs. cloud lock-in, and practical deployment utility.'
-					}
-				]
-			};
-
-			return {
-				sources: rssData?.sources || [],
-				categoriesConfig: catData || defaultCategories
-			};
+			return { sources: rssData?.sources || [], categoriesConfig: catData! };
 		});
 
-		// Step 2: Fetch and ingest RSS feeds in batches of 10, sleeping briefly every 3 batches (30 feeds)
-		// to yield the Worker invocation and get a fresh 50-subrequest budget.
 		let totalIngested = 0;
-
 		if (!skipIngestion) {
 			const sources = configData.sources;
-			const batchSize = 10;
-
-			for (let i = 0; i < sources.length; i += batchSize) {
-				const batchIndex = Math.floor(i / batchSize);
-				const batchSources = sources.slice(i, i + batchSize);
-
-				// Yield after batch 2 (30 feeds) and batch 5 (60 feeds) so we never exceed 50 subrequests per invocation
-				if (batchIndex > 0 && batchIndex % 3 === 0) {
-					await step.sleep(`reset-subrequest-quota-${batchIndex}`, '2 seconds');
+			for (let i = 0; i < sources.length; i += 10) {
+				const batchIndex = Math.floor(i / 10);
+				const batchSources = sources.slice(i, i + 10);
+				if (batchIndex > 0 && batchIndex % 2 === 0) {
+					await step.sleep(`yield-${batchIndex}`, '2 seconds');
 				}
-
-				const batchCount = await step.do(`ingest-rss-batch-${batchIndex}`, async () => {
-					let ingestedInBatch = 0;
-
-					const fetchPromises = batchSources.map(async (source) => {
-						const startTime = Date.now();
+				const count = await step.do(`ingest-batch-${batchIndex}`, async () => {
+					const promises = batchSources.map(async (source) => {
 						try {
-							const response = await fetch(source.url, {
-								headers: {
-									'User-Agent': 'WorldDailyDiary/1.0 (+https://seaoffate.net)',
-									'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*'
-								},
-								signal: AbortSignal.timeout(10000)
-							});
-
-							const elapsedMs = Date.now() - startTime;
-							if (!response.ok) {
-								await this.env.DB.prepare(`
-									INSERT INTO feed_telemetry (source_id, rss_name, feed_url, total_polls, failed_polls, last_status_code, last_error_reason, last_polled_at)
-									VALUES (?, ?, ?, 1, 1, ?, ?, unixepoch())
-									ON CONFLICT(source_id) DO UPDATE SET
-										total_polls = total_polls + 1,
-										failed_polls = failed_polls + 1,
-										last_status_code = excluded.last_status_code,
-										last_error_reason = excluded.last_error_reason,
-										last_polled_at = unixepoch()
-								`).bind(source.id, source.name, source.url, response.status, `HTTP ${response.status}`).run();
-								return [];
-							}
-
-							const xmlText = await response.text();
-							const parsed = await parseFeedXml(xmlText, source, ingestedDate);
-
-							await this.env.DB.prepare(`
-								INSERT INTO feed_telemetry (source_id, rss_name, feed_url, total_polls, successful_polls, avg_response_ms, avg_xml_bytes, total_raw_items, total_fresh_items, total_fluff_filtered, last_status_code, last_polled_at)
-								VALUES (?, ?, ?, 1, 1, ?, ?, ?, ?, ?, 200, unixepoch())
-								ON CONFLICT(source_id) DO UPDATE SET
-									total_polls = total_polls + 1,
-									successful_polls = successful_polls + 1,
-									avg_response_ms = (avg_response_ms + excluded.avg_response_ms) / 2,
-									avg_xml_bytes = (avg_xml_bytes + excluded.avg_xml_bytes) / 2,
-									total_raw_items = total_raw_items + excluded.total_raw_items,
-									total_fresh_items = total_fresh_items + excluded.total_fresh_items,
-									total_fluff_filtered = total_fluff_filtered + excluded.total_fluff_filtered,
-									last_status_code = 200,
-									last_error_reason = NULL,
-									last_polled_at = unixepoch()
-							`).bind(
-								source.id,
-								source.name,
-								source.url,
-								elapsedMs,
-								xmlText.length,
-								parsed.rawCount,
-								parsed.items.length,
-								parsed.fluffCount
-							).run();
-
+							const res = await fetch(source.url, { headers: { 'User-Agent': 'WorldDailyDiary/1.0' }, signal: AbortSignal.timeout(10000) });
+							if (!res.ok) return [];
+							const xml = await res.text();
+							const parsed = await parseFeedXml(xml, source, ingestedDate);
 							return parsed.items;
-						} catch (err) {
-							await this.env.DB.prepare(`
-								INSERT INTO feed_telemetry (source_id, rss_name, feed_url, total_polls, failed_polls, last_status_code, last_error_reason, last_polled_at)
-								VALUES (?, ?, ?, 1, 1, 0, ?, unixepoch())
-								ON CONFLICT(source_id) DO UPDATE SET
-									total_polls = total_polls + 1,
-									failed_polls = failed_polls + 1,
-									last_status_code = 0,
-									last_error_reason = excluded.last_error_reason,
-									last_polled_at = unixepoch()
-							`).bind(source.id, source.name, source.url, String(err).slice(0, 120)).run();
-							return [];
-						}
+						} catch { return []; }
 					});
-
-					const settled = await Promise.all(fetchPromises);
-					const allArticles = settled.flat();
-
-					const statements = allArticles.map(art =>
-						this.env.DB.prepare(`
-							INSERT INTO articles (
-								article_id, canonical_url, title, summary, source_id,
-								category_hint, language_code, syndication_velocity, published_at, ingested_date
-							) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-							ON CONFLICT(article_id) DO UPDATE SET
-								syndication_velocity = syndication_velocity + 1,
-								source_id = CASE
-									WHEN INSTR(articles.source_id, excluded.source_id) = 0
-									THEN articles.source_id || ' ; ' || excluded.source_id
-									ELSE articles.source_id
-								END
-						`).bind(
-							art.article_id,
-							art.canonical_url,
-							art.title,
-							art.summary,
-							art.source_id,
-							art.category_hint,
-							art.language_code,
-							art.published_at,
-							art.ingested_date
-						)
-					);
-
-					if (statements.length > 0) {
-						await this.env.DB.batch(statements);
-						ingestedInBatch = statements.length;
+					const items = (await Promise.all(promises)).flat();
+					if (items.length > 0) {
+						const stmts = items.map(art => this.env.DB.prepare(`
+							INSERT INTO articles (article_id, canonical_url, title, summary, source_id, category_hint, language_code, syndication_velocity, published_at, ingested_date)
+							VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+							ON CONFLICT(article_id) DO UPDATE SET syndication_velocity = syndication_velocity + 1
+						`).bind(art.article_id, art.canonical_url, art.title, art.summary, art.source_id, art.category_hint, art.language_code, art.published_at, art.ingested_date));
+						await this.env.DB.batch(stmts);
 					}
-
-					return ingestedInBatch;
+					return items.length;
 				});
-
-				totalIngested += batchCount;
+				totalIngested += count;
 			}
 		}
 
-		// Record hourly operational telemetry in KV
-		await step.do('hourly-condenser-snapshot', async () => {
-			await this.env.OPERATIONAL_KV.put(
-				`rss-hourly-${cycleId}`,
-				JSON.stringify({ cycleId, ingestedDate, totalIngested, timestamp: Date.now() }),
-				{ expirationTtl: 172800 }
-			);
-		});
+		if (!isDailyRun) return { status: 'Hourly complete', totalIngested };
 
-		if (!isDailyRun) {
-			return { status: 'Hourly ingestion complete', cycleId, totalIngested };
-		}
+		await step.sleep('yield-before-picker', '2 seconds');
 
-		// --- 24-HOUR DAILY PUBLISHING BRANCH ---
-
-		// Sleep 2 seconds before starting the Daily Publishing Branch to guarantee a fresh subrequest budget
-		await step.sleep('reset-subrequest-quota-before-daily', '2 seconds');
-
-		// Step 4: Prune articles older than 60 days
-		await step.do('daily-d1-pruning', async () => {
-			const cutoff = Math.floor(Date.now() / 1000) - (60 * 86400);
-			await this.env.DB.prepare(`DELETE FROM articles WHERE created_at < ?`).bind(cutoff).run();
-		});
-
-		// Step 5: Two-Pass Quota Story Picker (Min 5/2/2/2, Max 20/10/10/10, Total Max 25)
 		const selectedArticles = await step.do('quota-story-picker', async () => {
 			const catConfig = configData.categoriesConfig;
-			const globalMax = catConfig.global_max_stories || 25;
-
 			const picked: any[] = [];
 			const pickedIds = new Set<string>();
-			const overflowPool: any[] = [];
+			const overflow: any[] = [];
 
 			for (const cat of catConfig.categories) {
 				const { results } = await this.env.DB.prepare(`
 					SELECT article_id, canonical_url, title, summary, source_id, category_hint, syndication_velocity, published_at
-					FROM articles
-					WHERE ingested_date = ? AND category_hint = ?
-					ORDER BY syndication_velocity DESC, published_at DESC
-					LIMIT ?
+					FROM articles WHERE ingested_date = ? AND category_hint = ?
+					ORDER BY syndication_velocity DESC, published_at DESC LIMIT ?
 				`).bind(ingestedDate, cat.id, cat.max_stories).all();
 
-				const candidates = (results || []) as any[];
-
-				// Pass 1: Guarantee category minimum
-				const minSlice = candidates.slice(0, cat.min_stories);
-				for (const item of minSlice) {
-					picked.push(item);
-					pickedIds.add(item.article_id);
-				}
-
-				// Remaining candidates up to category max_stories go into Pass 2 overflow pool
-				const remainingSlice = candidates.slice(cat.min_stories, cat.max_stories);
-				for (const item of remainingSlice) {
-					overflowPool.push(item);
-				}
+				const items = (results || []) as any[];
+				items.slice(0, cat.min_stories).forEach(i => { picked.push(i); pickedIds.add(i.article_id); });
+				items.slice(cat.min_stories).forEach(i => overflow.push(i));
 			}
 
-			overflowPool.sort((a, b) => {
-				if (b.syndication_velocity !== a.syndication_velocity) {
-					return b.syndication_velocity - a.syndication_velocity;
-				}
-				return b.published_at - a.published_at;
-			});
-
-			// Pass 2: Fill remaining slots up to globalMax (25)
-			for (const item of overflowPool) {
-				if (picked.length >= globalMax) break;
-				if (!pickedIds.has(item.article_id)) {
-					picked.push(item);
-					pickedIds.add(item.article_id);
-				}
+			overflow.sort((a, b) => b.syndication_velocity - a.syndication_velocity);
+			for (const item of overflow) {
+				if (picked.length >= catConfig.global_max_stories) break;
+				if (!pickedIds.has(item.article_id)) { picked.push(item); pickedIds.add(item.article_id); }
 			}
-
 			return picked;
 		});
 
-		// Step 6: Dual-Prompt LLM Execution (Prompt 1: Event Report, Prompt 2: Bias / Category Analysis)
-		const publishedStoryIds: string[] = [];
 		const categoryMap = new Map<string, CategoryConfig>();
-		for (const c of configData.categoriesConfig.categories) {
-			categoryMap.set(c.id, c);
-		}
+		configData.categoriesConfig.categories.forEach(c => categoryMap.set(c.id, c));
 
-		const aiBatchSize = 5;
-		for (let i = 0; i < selectedArticles.length; i += aiBatchSize) {
-			const batchIndex = Math.floor(i / aiBatchSize);
-			const storyChunk = selectedArticles.slice(i, i + aiBatchSize);
+		for (let idx = 0; idx < selectedArticles.length; idx++) {
+			const article = selectedArticles[idx];
+			await step.do(`ai-story-${idx}`, async () => {
+				const cat = categoryMap.get(article.category_hint) || configData.categoriesConfig.categories[0];
+				const sourceSegments = String(article.source_id).split(' ; ').map(s => {
+					const p = s.split('|');
+					return { name: p[1] || p[0], region: p[2] || 'Global' };
+				});
+				const sourceSummaryText = sourceSegments.map(s => `${s.name} (${s.region})`).join(', ');
 
-			const chunkIds = await step.do(`research-and-write-batch-${batchIndex}`, async () => {
-				const writtenIds: string[] = [];
+				const userContext = [
+					`Headline: ${article.title}`,
+					`Category: ${cat.name}`,
+					`Sources: ${sourceSummaryText}`,
+					`Velocity: ${article.syndication_velocity}`,
+					`Summary: ${article.summary}`,
+					`URL: ${article.canonical_url}`
+				].join('\n');
 
-				for (const article of storyChunk) {
-					const cat = categoryMap.get(article.category_hint) || configData.categoriesConfig.categories[0];
+				const eventReport = await runLlmPrompt(this.env, cat.prompt_event, userContext);
+				const secondHeading = cat.id === 'general' ? 'Source Bias & Geopolitical Framing' : `${cat.name} Impact Analysis`;
+				const analysisReport = await runLlmPrompt(this.env, cat.prompt_analysis, userContext);
 
-					const sourceSegments = String(article.source_id).split(' ; ').map(s => {
-						const parts = s.split('|');
-						return {
-							id: parts[0] || 'unknown',
-							name: parts[1] || parts[0] || 'Unknown Source',
-							region: parts[2] || 'Global'
-						};
-					});
+				const compiledMarkdown = [
+					`### The Event`, eventReport, ``,
+					`### ${secondHeading}`, analysisReport, ``,
+					`**Sources:** ${sourceSummaryText} | [Read Original](${article.canonical_url})`
+				].join('\n');
 
-					const sourceSummaryText = sourceSegments.map(s => `${s.name} (${s.region})`).join(', ');
+				const bodyHash = await sha256Hex(compiledMarkdown);
+				const storyId = `story-${ingestedDate}-${article.article_id.slice(0, 12)}`;
 
-					const userContext = [
-						`Headline: ${article.title}`,
-						`Category: ${cat.name}`,
-						`Reporting Source(s) & Region(s): ${sourceSummaryText}`,
-						`Corroboration Velocity: ${article.syndication_velocity} feed(s)`,
-						`Source Summary: ${article.summary}`,
-						`Canonical URL: ${article.canonical_url}`
-					].join('\n');
-
-					// LLM Call 1: The News Event Report
-					const eventReport = await runLlmPrompt(this.env, cat.prompt_event, userContext);
-
-					// LLM Call 2: Category-Specific or Source Bias Analysis
-					const secondHeading = cat.id === 'general'
-						? 'Source Bias & Geopolitical Framing'
-						: `${cat.name} Impact Analysis`;
-
-					const analysisReport = await runLlmPrompt(this.env, cat.prompt_analysis, userContext);
-
-					const compiledMarkdown = [
-						`### The Event`,
-						eventReport,
-						``,
-						`### ${secondHeading}`,
-						analysisReport,
-						``,
-						`**Sources:** ${sourceSummaryText} | [Read Original Article](${article.canonical_url})`
-					].join('\n');
-
-					const bodyHash = await sha256Hex(compiledMarkdown);
-					const storyId = `story-${ingestedDate}-${article.article_id.slice(0, 12)}`;
-
-					await this.env.DB.prepare(`
-						INSERT INTO published_stories (
-							story_id, ingested_date, category_id, headline, markdown_body,
-							original_body_hash, search_entities_json, sources_json,
-							tracking_status, tracking_origin, followup_directive
-						) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'llm_auto', NULL)
-						ON CONFLICT(story_id) DO UPDATE SET
-							markdown_body = excluded.markdown_body,
-							original_body_hash = excluded.original_body_hash
-					`).bind(
-						storyId,
-						ingestedDate,
-						cat.id,
-						article.title,
-						compiledMarkdown,
-						bodyHash,
-						JSON.stringify([cat.id]),
-						JSON.stringify(sourceSegments)
-					).run();
-
-					writtenIds.push(storyId);
-				}
-
-				return writtenIds;
+				await this.env.DB.prepare(`
+					INSERT INTO published_stories (story_id, ingested_date, category_id, headline, markdown_body, original_body_hash, search_entities_json, sources_json, tracking_status, tracking_origin)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'llm_auto')
+					ON CONFLICT(story_id) DO UPDATE SET markdown_body = excluded.markdown_body, original_body_hash = excluded.original_body_hash
+				`).bind(storyId, ingestedDate, cat.id, article.title, compiledMarkdown, bodyHash, JSON.stringify([cat.id]), JSON.stringify(sourceSegments)).run();
 			});
-
-			publishedStoryIds.push(...chunkIds);
 		}
 
-		// Yield again before BookStack publication so the outbound HTTP POST has a fresh invocation
-		await step.sleep('reset-subrequest-quota-before-publish', '2 seconds');
+		await step.sleep('yield-before-r2', '2 seconds');
 
-		// Step 7: Daily Copier (Archive to R2, Publish Daily Page to BookStack, Update Control Ledger)
-		const publicationResult = await step.do('daily-copier-publish', async () => {
+		// Step 7A: Archive full digest to Cloudflare R2
+		await step.do('archive-to-r2', async () => {
 			const { results } = await this.env.DB.prepare(`
-				SELECT story_id, category_id, headline, markdown_body, sources_json
-				FROM published_stories
-				WHERE ingested_date = ?
-				ORDER BY category_id ASC, created_at ASC
+				SELECT category_id, headline, markdown_body FROM published_stories WHERE ingested_date = ? ORDER BY category_id ASC
 			`).bind(ingestedDate).all();
-
 			const stories = (results || []) as any[];
-			if (stories.length === 0) {
-				return { publishedCount: 0, bookstackPageId: null };
+
+			let dailyMarkdown = `# World Daily Diary — ${ingestedDate}\n\n*Automated global intelligence digest (${stories.length} stories across 70 feeds).*\n\n---\n\n`;
+			for (const st of stories) {
+				dailyMarkdown += `## ${st.headline}\n\n${st.markdown_body}\n\n---\n\n`;
 			}
 
-			const categoryOrder: Array<{ id: string; title: string }> = [
-				{ id: 'general', title: 'World & General News' },
-				{ id: 'tech', title: 'Technology & Engineering' },
-				{ id: 'cyber', title: 'Cybersecurity & Threat Intelligence' },
-				{ id: 'ai', title: 'Artificial Intelligence' }
-			];
-
-			let dailyMarkdown = `# World Daily Diary — ${ingestedDate}\n\n`;
-			dailyMarkdown += `*Automated global intelligence digest (${stories.length} curated stories across 70 global feeds).*\n\n---\n\n`;
-
-			for (const section of categoryOrder) {
-				const sectionStories = stories.filter(s => s.category_id === section.id);
-				if (sectionStories.length === 0) continue;
-
-				dailyMarkdown += `## ${section.title} (${sectionStories.length})\n\n`;
-				for (const st of sectionStories) {
-					dailyMarkdown += `## ${st.headline}\n\n`;
-					dailyMarkdown += `${st.markdown_body}\n\n---\n\n`;
-				}
-			}
-
-			// 1. Archive full digest to Cloudflare R2
-			const r2Key = `daily/${ingestedDate}/world-daily-diary-${ingestedDate}.md`;
-			await this.env.ARCHIVE_BUCKET.put(r2Key, dailyMarkdown, {
+			await this.env.ARCHIVE_BUCKET.put(`daily/${ingestedDate}/world-daily-diary-${ingestedDate}.md`, dailyMarkdown, {
 				httpMetadata: { contentType: 'text/markdown; charset=utf-8' }
 			});
+			return { archivedCount: stories.length };
+		});
 
-			// 2. Publish new Daily Page to BookStack (Book ID 317)
+		await step.sleep('yield-before-bookstack', '2 seconds');
+
+		// Step 7B: Publish Daily Page to BookStack
+		const bookstackResult = await step.do('publish-daily-page', async () => {
+			const { results } = await this.env.DB.prepare(`
+				SELECT category_id, headline, markdown_body FROM published_stories WHERE ingested_date = ? ORDER BY category_id ASC
+			`).bind(ingestedDate).all();
+			const stories = (results || []) as any[];
+
+			let dailyMarkdown = `# World Daily Diary — ${ingestedDate}\n\n*Automated global intelligence digest (${stories.length} stories across 70 feeds).*\n\n---\n\n`;
+			for (const st of stories) {
+				dailyMarkdown += `## ${st.headline}\n\n${st.markdown_body}\n\n---\n\n`;
+			}
+
 			let bookstackPageId: number | null = null;
-			let bookstackStatus = 0;
-			let bookstackError: string | null = null;
-
 			try {
 				const bsResponse = await fetch(`${this.env.BOOKSTACK_URL}/api/pages`, {
 					method: 'POST',
@@ -797,19 +473,12 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 					})
 				});
 
-				bookstackStatus = bsResponse.status;
 				if (bsResponse.ok) {
 					const bsJson: any = await bsResponse.json();
 					bookstackPageId = bsJson.id || null;
-				} else {
-					const errText = await bsResponse.text();
-					bookstackError = `HTTP ${bsResponse.status}: ${errText.slice(0, 200)}`;
 				}
-			} catch (err) {
-				bookstackError = String(err);
-			}
+			} catch {}
 
-			// 3. Mark stories as synced in D1
 			await this.env.DB.prepare(`
 				UPDATE published_stories
 				SET r2_synced = 1,
@@ -818,152 +487,43 @@ export class NewsPipelineWorkflow extends WorkflowEntrypoint<Env, PipelineParams
 				WHERE ingested_date = ?
 			`).bind(bookstackPageId, bookstackPageId, ingestedDate).run();
 
-			// 4. Refresh the Editorial Control Ledger
-			await regenerateControlPage(this.env);
-
-			return {
-				publishedCount: stories.length,
-				bookstackPageId,
-				bookstackStatus,
-				bookstackError,
-				r2Key
-			};
+			return { publishedCount: stories.length, bookstackPageId };
 		});
 
-		return {
-			status: '24-hour cycle complete',
-			cycleId,
-			totalIngested,
-			selectedCount: selectedArticles.length,
-			publicationResult
-		};
+		await step.sleep('yield-before-ledger', '2 seconds');
+
+		// Step 7C: Update Editorial Control Ledger
+		await step.do('update-control-ledger', async () => {
+			await regenerateControlPage(this.env);
+			return { status: 'Control ledger updated' };
+		});
+
+		return { status: 'Daily complete', bookstackResult };
 	}
 }
-
-// --- EDGE WORKER HANDLERS ---
 
 export default {
 	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		const date = new Date(event.scheduledTime || Date.now());
 		const hour = date.getUTCHours();
 		const cycleId = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}-${String(hour).padStart(2, '0')}`;
-		const isDailyRun = (hour === 23);
-
-		await env.NEWS_WORKFLOW.create({
-			id: `pipeline-${cycleId}-${Date.now()}`,
-			params: { cycleId, isDailyRun }
-		});
+		await env.NEWS_WORKFLOW.create({ id: `pipeline-${cycleId}-${Date.now()}`, params: { cycleId, isDailyRun: hour === 23 } });
 	},
-
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
-
-		// Manual Test Trigger Endpoint: /trigger?key=YOUR_KEY&daily=true&skipIngestion=false
 		if (url.pathname === '/trigger') {
 			const key = url.searchParams.get('key');
-			if (!key || key !== env.ADMIN_INTERVENTION_KEY) {
-				return new Response('Unauthorized', { status: 401 });
-			}
+			if (!key || key !== env.ADMIN_INTERVENTION_KEY) return new Response('Unauthorized', { status: 401 });
 			const isDailyRun = url.searchParams.get('daily') === 'true';
 			const skipIngestion = url.searchParams.get('skipIngestion') === 'true';
 			const now = new Date();
 			const cycleId = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}-${String(now.getUTCHours()).padStart(2, '0')}`;
 			const instanceId = `manual-${cycleId}-${Date.now()}`;
-
-			await env.NEWS_WORKFLOW.create({
-				id: instanceId,
-				params: { cycleId, isDailyRun, skipIngestion }
-			});
-
-			return new Response(
-				JSON.stringify({ status: 'Workflow started', instanceId, cycleId, isDailyRun, skipIngestion }, null, 2),
-				{ headers: { 'Content-Type': 'application/json' } }
-			);
+			await env.NEWS_WORKFLOW.create({ id: instanceId, params: { cycleId, isDailyRun, skipIngestion } });
+			return new Response(JSON.stringify({ status: 'Started', instanceId }, null, 2), { headers: { 'Content-Type': 'application/json' } });
 		}
-
-		if (url.pathname !== '/act') {
-			return new Response('Not found', { status: 404 });
-		}
-
-		const storyId = url.searchParams.get('id');
-		const action = url.searchParams.get('do');
-		const signature = url.searchParams.get('sig');
-
-		if (!storyId || !action || !signature) {
-			return new Response('Missing parameters', { status: 400 });
-		}
-
-		const isValid = await verifyActionSignature(storyId, action, signature, env.ADMIN_INTERVENTION_KEY);
-
-		if (!isValid) {
-			return new Response('Forbidden: Invalid cryptographic signature.', { status: 403 });
-		}
-
-		if (request.method === 'GET') {
-			const html = `
-				<!DOCTYPE html>
-				<html>
-				<head>
-					<title>Confirm Action</title>
-					<style>
-						body { font-family: system-ui, sans-serif; background: #f4f4f5; display: flex; justify-content: center; padding-top: 50px; }
-						.card { background: white; padding: 24px; border-radius: 8px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); width: 100%; max-width: 500px; }
-						button { background: #2563eb; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 16px;}
-						button:hover { background: #1d4ed8; }
-						input[type="text"] { width: 100%; padding: 8px; margin-top: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-					</style>
-				</head>
-				<body>
-					<div class="card">
-						<h2>Confirm Action: ${action.toUpperCase()}</h2>
-						<p>Story ID: <code>${storyId}</code></p>
-						<form method="POST" action="${url.pathname}${url.search}">
-							${action === 'follow' ? '<label>Custom Follow-up Directive (Optional):<input type="text" name="directive" placeholder="e.g., Track parliamentary votes"></label>' : ''}
-							${action === 'expand' ? '<label>Focus Area (Optional):<input type="text" name="focus" placeholder="e.g., Focus on supply chain impacts"></label>' : ''}
-							<button type="submit">Confirm Execution</button>
-						</form>
-					</div>
-				</body>
-				</html>
-			`;
-			return new Response(html, { headers: { 'Content-Type': 'text/html' } });
-		} else if (request.method === 'POST') {
-			const formData = await request.formData().catch(() => new FormData());
-			const operatorInput = String(formData.get('directive') || formData.get('focus') || '');
-
-			if (action === 'follow') {
-				const directive = operatorInput || 'Track developments and overnight updates.';
-				await env.DB.prepare(`
-					UPDATE published_stories 
-					SET tracking_status = 1, tracking_origin = 'human_override', followup_directive = ? 
-					WHERE story_id = ?
-				`).bind(directive, storyId).run();
-
-			} else if (action === 'unfollow') {
-				await env.DB.prepare(`
-					UPDATE published_stories 
-					SET tracking_status = 0 
-					WHERE story_id = ?
-				`).bind(storyId).run();
-
-			} else if (action === 'expand') {
-				await env.NEWS_WORKFLOW.create({
-					id: `expansion-${storyId}-${Date.now()}`,
-					params: {
-						cycleId: 'expansion',
-						isDailyRun: false,
-						expansionTarget: storyId,
-						expansionFocus: operatorInput
-					}
-				});
-				return new Response('Expansion workflow triggered. The story will be updated shortly.', { status: 200 });
-			}
-
-			await regenerateControlPage(env);
-
-			return Response.redirect(`${env.BOOKSTACK_URL}/books/world-daily-diary/page/editorial-control`, 303);
-		}
-
-		return new Response('Method not allowed', { status: 405 });
+		return new Response('Not found', { status: 404 });
 	}
 };
+
+
