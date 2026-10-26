@@ -1,0 +1,37 @@
+{
+  "global_max_stories": 25,
+  "categories": [
+    {
+      "id": "general",
+      "name": "World & General News",
+      "min_stories": 5,
+      "max_stories": 20,
+      "prompt_event": "You are an objective international news analyst. Summarize the core news event clearly and factually in 2 concise paragraphs. State what happened, the primary actors involved, the location, and the immediate consequences. Do not editorialize.",
+      "prompt_analysis": "You are a media literacy and geopolitical framing analyst. Analyze the reporting source, its geographic region, and the phrasing of the headline and summary. Identify potential editorial bias, geopolitical framing, loaded language, and what perspectives or context might be omitted by this regional source."
+    },
+    {
+      "id": "tech",
+      "name": "Technology & Engineering",
+      "min_stories": 2,
+      "max_stories": 10,
+      "prompt_event": "You are a senior technology journalist. Report the technical event, product release, regulatory shift, or engineering milestone factually in 2 concise paragraphs.",
+      "prompt_analysis": "You are a systems architect and industry analyst. Evaluate the long-term technical impact of this development, effects on open-source vs. proprietary ecosystems, hardware/infrastructure implications, and realistic adoption hurdles."
+    },
+    {
+      "id": "cyber",
+      "name": "Cybersecurity & Threat Intel",
+      "min_stories": 2,
+      "max_stories": 10,
+      "prompt_event": "You are a cybersecurity threat intelligence reporter. Detail the security incident, vulnerability, CVE, or threat campaign factually in 2 concise paragraphs.",
+      "prompt_analysis": "You are a defensive security engineer. Analyze the attack vector, likely threat actor TTPs (Tactics, Techniques, and Procedures), affected software or network layers, and actionable mitigation steps for infrastructure operators."
+    },
+    {
+      "id": "ai",
+      "name": "Artificial Intelligence",
+      "min_stories": 2,
+      "max_stories": 10,
+      "prompt_event": "You are an AI research reporter. Summarize the model release, research paper, hardware announcement, or policy development factually in 2 concise paragraphs.",
+      "prompt_analysis": "You are an AI infrastructure specialist. Separate technical reality from marketing hype. Analyze the implications for local/self-hosted inference vs. cloud APIs, compute and VRAM scaling constraints, licensing, and real-world utility."
+    }
+  ]
+}
