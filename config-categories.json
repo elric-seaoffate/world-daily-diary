@@ -1,37 +1,37 @@
 {
-  "global_max_stories": 25,
+  "global_max_stories": 24,
   "categories": [
     {
       "id": "general",
       "name": "World & General News",
       "min_stories": 5,
       "max_stories": 20,
-      "prompt_event": "You are an objective international news analyst. Summarize the core news event clearly and factually in 2 concise paragraphs. State what happened, the primary actors involved, the location, and the immediate consequences. Do not editorialize.",
-      "prompt_analysis": "You are a media literacy and geopolitical framing analyst. Analyze the reporting source, its geographic region, and the phrasing of the headline and summary. Identify potential editorial bias, geopolitical framing, loaded language, and what perspectives or context might be omitted by this regional source."
+      "prompt_event": "Write a comprehensive intelligence brief of the event (3-4 detailed paragraphs). Go beyond the surface: include the historical context leading up to this event, identify all key stakeholders and their motives, and state the immediate geopolitical or economic consequences. Use a professional, analytical tone.",
+      "prompt_analysis": "Conduct a rigorous media literacy and framing analysis (2-3 paragraphs). Scrutinize the reporting source and its geographic origin. Identify explicit biases, loaded terminology, or geopolitical framing used in the text. Explicitly state what crucial perspectives, facts, or opposing viewpoints are noticeably absent from this regional reporting."
     },
     {
       "id": "tech",
       "name": "Technology & Engineering",
       "min_stories": 2,
       "max_stories": 10,
-      "prompt_event": "You are a senior technology journalist. Report the technical event, product release, regulatory shift, or engineering milestone factually in 2 concise paragraphs.",
-      "prompt_analysis": "You are a systems architect and industry analyst. Evaluate the long-term technical impact of this development, effects on open-source vs. proprietary ecosystems, hardware/infrastructure implications, and realistic adoption hurdles."
+      "prompt_event": "Write a detailed technical briefing on this event, product release, or engineering milestone (3-4 paragraphs). Explain the underlying technology, the market context, and the specific problem it attempts to solve.",
+      "prompt_analysis": "Provide a systemic impact analysis (2-3 paragraphs). Evaluate the long-term effects on the industry ecosystem, potential shifts in the open-source vs. proprietary landscape, hardware or infrastructure dependencies, and realistic hurdles to enterprise adoption."
     },
     {
       "id": "cyber",
       "name": "Cybersecurity & Threat Intel",
       "min_stories": 2,
       "max_stories": 10,
-      "prompt_event": "You are a cybersecurity threat intelligence reporter. Detail the security incident, vulnerability, CVE, or threat campaign factually in 2 concise paragraphs.",
-      "prompt_analysis": "You are a defensive security engineer. Analyze the attack vector, likely threat actor TTPs (Tactics, Techniques, and Procedures), affected software or network layers, and actionable mitigation steps for infrastructure operators."
+      "prompt_event": "Write a detailed threat intelligence report on this security incident, vulnerability, or campaign (3-4 paragraphs). Detail the attack vector, the specific systems or layers compromised, and the timeline of the exploit.",
+      "prompt_analysis": "Provide a defensive engineering analysis (2-3 paragraphs). Evaluate the likely threat actor TTPs (Tactics, Techniques, and Procedures), the broader risk to infrastructure operators, and provide concrete, actionable mitigation or patching steps."
     },
     {
       "id": "ai",
       "name": "Artificial Intelligence",
       "min_stories": 2,
       "max_stories": 10,
-      "prompt_event": "You are an AI research reporter. Summarize the model release, research paper, hardware announcement, or policy development factually in 2 concise paragraphs.",
-      "prompt_analysis": "You are an AI infrastructure specialist. Separate technical reality from marketing hype. Analyze the implications for local/self-hosted inference vs. cloud APIs, compute and VRAM scaling constraints, licensing, and real-world utility."
+      "prompt_event": "Write a detailed research and development brief on this AI model release, paper, or policy shift (3-4 paragraphs). Explain the architectural advancements, the training methodology if mentioned, and its intended use cases.",
+      "prompt_analysis": "Conduct a critical technical evaluation (2-3 paragraphs). Strip away the marketing hype. Analyze the actual compute and VRAM requirements, the implications for local/open-weights deployment versus cloud API lock-in, and the realistic utility of the development in production environments."
     }
   ]
 }
