@@ -1,13 +1,13 @@
 # World Daily Diary (`world-daily-diary`)
 
-An automated global intelligence gathering, deduplication, historical archiving, and publishing engine built on **Cloudflare Workers**. It ingests 70 global RSS feeds every hour, clusters and deduplicates stories using a hybrid math and lightweight LLM hierarchy, generates deep-dive event reports and impact analyses with Llama 3.1 8B, synthesizes chronological context via a dual-archive historical archivist pass, and publishes structured markdown digests to **AWS R2** and **BookStack**.
+An automated global intelligence gathering, deduplication, historical archiving, and publishing engine built on **Cloudflare Workers**.Expected to run on the free tier of Cloudflare but would benefit from the extra features of a developers paid tiers. At present, it ingests 70 global RSS feeds every hour, clusters and deduplicates stories using a hybrid math and lightweight LLM hierarchy, generates deep-dive event reports and impact analyses with Llama 3.1 8B, synthesizes chronological context via a dual-archive historical archivist pass, and publishes structured markdown digests to **AWS R2** and **BookStack**.
 
 ---
 
 ## Architecture Overview
 
 1. **70-Feed Hourly Scatter-Gather (10 Shards × 7 Feeds):**
-   - Cloudflare Workers enforce a 50-subrequest ceiling per invocation. To poll all 70 feeds reliably, `handleHourlyIngest` splits sources into 10 shards of 7.
+   - Cloudflare Workers enforce a 50-subrequest ceiling per invocation(on free tier). To poll all 70 feeds reliably, `handleHourlyIngest` splits sources into 10 shards of 7.
    - Shard 0 runs inline on the hourly cron; Shards 1–9 are pushed to `NEWS_QUEUE` with staggered delays (`delaySeconds: s * 6`) so Cloudflare executes exactly one shard worker at a time (7 subrequests per worker).
    - When the final shard (`s9`) finishes, `consolidateHourlyShards` merges and deduplicates all 10 shards into a master hourly JSON feed (`rss-hourly-YYYY-MM-DD-HH`) and a master health ledger (`rss-health-YYYY-MM-DD`).
 
