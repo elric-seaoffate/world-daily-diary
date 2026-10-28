@@ -6,32 +6,32 @@
       "name": "World & General News",
       "min_stories": 5,
       "max_stories": 20,
-      "prompt_event": "Write a comprehensive intelligence brief of the event (3-4 detailed paragraphs). Go beyond the surface: include the historical context leading up to this event, identify all key stakeholders and their motives, and state the immediate geopolitical or economic consequences. Use a professional, analytical tone.",
-      "prompt_analysis": "Conduct a rigorous media literacy and framing analysis (2-3 paragraphs). Scrutinize the reporting source and its geographic origin. Identify explicit biases, loaded terminology, or geopolitical framing used in the text. Explicitly state what crucial perspectives, facts, or opposing viewpoints are noticeably absent from this regional reporting."
+      "prompt_event": "Write a strictly factual news report on this global event. State solely what happened, when and where it occurred, the named parties or stakeholders involved, and the verified facts reported by the sources. Do not speculate on broader geopolitical implications or media bias in this section. FORMATTING RULES: Write only in flowing, comprehensive paragraphs. You are strictly forbidden from using any markdown formatting, headers, subheadings, bullet points, or numbered lists.",
+      "prompt_analysis": "Conduct a rigorous media literacy, geopolitical framing, and strategic consequence analysis without re-summarizing the basic facts of the event. Scrutinize the reporting sources and their geographic origins, identify loaded terminology or regional bias, explain the broader geopolitical and economic consequences, and state what crucial perspectives or opposing viewpoints are omitted from the reporting. FORMATTING RULES: Write only in flowing, comprehensive paragraphs. You are strictly forbidden from using any markdown formatting, headers, subheadings, bullet points, or numbered lists."
     },
     {
       "id": "tech",
       "name": "Technology & Engineering",
       "min_stories": 2,
       "max_stories": 10,
-      "prompt_event": "Write a detailed technical briefing on this event, product release, or engineering milestone (3-4 paragraphs). Explain the underlying technology, the market context, and the specific problem it attempts to solve.",
-      "prompt_analysis": "Provide a systemic impact analysis (2-3 paragraphs). Evaluate the long-term effects on the industry ecosystem, potential shifts in the open-source vs. proprietary landscape, hardware or infrastructure dependencies, and realistic hurdles to enterprise adoption."
+      "prompt_event": "Write a strictly factual technical report on this product release, engineering milestone, or industry event. Detail the exact specifications, underlying architecture, pricing, release timeline, and concrete facts announced. Do not include industry impact commentary or adoption hurdles in this section. FORMATTING RULES: Write only in flowing, comprehensive paragraphs. You are strictly forbidden from using any markdown formatting, headers, subheadings, bullet points, or numbered lists.",
+      "prompt_analysis": "Provide a systemic engineering and market impact analysis without repeating the basic product announcement. Evaluate long-term effects on the technology ecosystem, shifts in the open-source versus proprietary landscape, hardware or infrastructure dependencies, and realistic hurdles to enterprise or consumer adoption. FORMATTING RULES: Write only in flowing, comprehensive paragraphs. You are strictly forbidden from using any markdown formatting, headers, subheadings, bullet points, or numbered lists."
     },
     {
       "id": "cyber",
       "name": "Cybersecurity & Threat Intel",
       "min_stories": 2,
       "max_stories": 10,
-      "prompt_event": "Write a detailed threat intelligence report on this security incident, vulnerability, or campaign (3-4 paragraphs). Detail the attack vector, the specific systems or layers compromised, and the timeline of the exploit.",
-      "prompt_analysis": "Provide a defensive engineering analysis (2-3 paragraphs). Evaluate the likely threat actor TTPs (Tactics, Techniques, and Procedures), the broader risk to infrastructure operators, and provide concrete, actionable mitigation or patching steps."
+      "prompt_event": "Write a strictly factual threat intelligence report on this security incident, vulnerability disclosure, or patch release. Detail only the specific CVE identifiers or patch counts, the affected software or hardware versions, the technical attack vector or root cause flaw, and the timeline of discovery and disclosure. Do not include defensive advice or mitigation steps in this section. FORMATTING RULES: Write only in flowing, comprehensive paragraphs. You are strictly forbidden from using any markdown formatting, headers, subheadings, bullet points, or numbered lists.",
+      "prompt_analysis": "Provide a defensive engineering and operational risk analysis without repeating the basic vulnerability summary. Evaluate threat actor tactics, techniques, and procedures, assess the realistic blast radius for infrastructure operators, and detail concrete architectural mitigations, detection strategies, and patching priorities. FORMATTING RULES: Write only in flowing, comprehensive paragraphs. You are strictly forbidden from using any markdown formatting, headers, subheadings, bullet points, or numbered lists."
     },
     {
       "id": "ai",
       "name": "Artificial Intelligence",
       "min_stories": 2,
       "max_stories": 10,
-      "prompt_event": "Write a detailed research and development brief on this AI model release, paper, or policy shift (3-4 paragraphs). Explain the architectural advancements, the training methodology if mentioned, and its intended use cases.",
-      "prompt_analysis": "Conduct a critical technical evaluation (2-3 paragraphs). Strip away the marketing hype. Analyze the actual compute and VRAM requirements, the implications for local/open-weights deployment versus cloud API lock-in, and the realistic utility of the development in production environments."
+      "prompt_event": "Write a strictly factual research and development report on this AI model release, benchmark update, paper, or partnership. Detail only the exact model architecture, parameter counts, context window, benchmark scores, dataset sizes, licensing terms, and announced capabilities. Do not evaluate cloud lock-in, production trade-offs, or marketing hype in this section. FORMATTING RULES: Write only in flowing, comprehensive paragraphs. You are strictly forbidden from using any markdown formatting, headers, subheadings, bullet points, or numbered lists.",
+      "prompt_analysis": "Conduct a critical technical evaluation without re-stating the basic announcement facts. Strip away marketing claims to analyze real-world compute and VRAM bottlenecks, local open-weights deployment viability versus cloud API lock-in, and the practical limitations of deploying this development in production environments. FORMATTING RULES: Write only in flowing, comprehensive paragraphs. You are strictly forbidden from using any markdown formatting, headers, subheadings, bullet points, or numbered lists."
     }
   ]
 }

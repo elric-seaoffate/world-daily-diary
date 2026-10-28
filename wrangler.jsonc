@@ -2,27 +2,22 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "world-daily-diary",
   "main": "src/index.ts",
-  "compatibility_date": "2026-10-26",
-  "compatibility_flags": ["nodejs_compat"],
-  
+  "compatibility_date": "2026-03-19",
+
+  // Cron schedule for automated hourly execution
   "triggers": {
-    "crons": ["0 * * * *"]
+    "crons": [
+      "0 * * * *",
+      "5 23 * * *"
+    ]
   },
-  
-  "vars": {
-    "BOOKSTACK_URL": "https://notes.seaoffate.net",
-    "MASTER_BOOK_ID": "317",
-    "SYSTEM_TIMEZONE": "Europe/London"
+
+  // Workers AI binding
+  "ai": {
+    "binding": "AI"
   },
-  
-  "workflows": [
-    {
-      "name": "news-pipeline-workflow",
-      "binding": "NEWS_WORKFLOW",
-      "class_name": "NewsPipelineWorkflow"
-    }
-  ],
-  
+
+  // D1 SQLite Database binding
   "d1_databases": [
     {
       "binding": "DB",
@@ -30,14 +25,16 @@
       "database_id": "d4286300-9f28-454c-85a2-75f5d05f1f4a"
     }
   ],
-  
+
+  // R2 Storage Bucket binding
   "r2_buckets": [
     {
       "binding": "ARCHIVE_BUCKET",
       "bucket_name": "news-diary-archive"
     }
   ],
-  
+
+  // KV Namespaces for configuration and operational staging
   "kv_namespaces": [
     {
       "binding": "CONFIG_KV",
@@ -48,8 +45,28 @@
       "id": "60f4583fda5642e28295f49594ef3afd"
     }
   ],
-  
-  "ai": {
-    "binding": "AI"
+
+  // Cloudflare Queues bindings for the distributed Scatter-Gather architecture
+  "queues": {
+    "producers": [
+      {
+        "queue": "news-generation-queue",
+        "binding": "NEWS_QUEUE"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "news-generation-queue",
+        "max_batch_size": 5,
+        "max_batch_timeout": 5
+      }
+    ]
+  },
+
+  // Public environment variables
+  "vars": {
+    "BOOKSTACK_URL": "https://notes.seaoffate.net",
+    "MASTER_BOOK_ID": "317",
+    "SYSTEM_TIMEZONE": "Europe/London"
   }
 }
