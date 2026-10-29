@@ -7,6 +7,10 @@
     { "id": "gen-eu-euronews", "name": "Euronews", "url": "https://www.euronews.com/rss?format=mrss&level=theme&name=news", "category": "general", "region": "UK/Europe", "lang": "en" },
     { "id": "gen-eu-rte", "name": "RTE News World", "url": "https://www.rte.ie/feeds/rss/?index=/news/world/", "category": "general", "region": "UK/Europe", "lang": "en" },
     { "id": "gen-eu-swissinfo", "name": "SwissInfo International", "url": "https://www.swissinfo.ch/eng/rss", "category": "general", "region": "UK/Europe", "lang": "en" },
+    { "id": "gen-eu-denmark", "name": "Denmark Digest", "url": "https://feeds.denmarkdigest.dk/", "category": "general", "region": "UK/Europe", "lang": "en" },
+    { "id": "gen-eu-portugalnews", "name": "The Portugal News", "url": "https://www.theportugalnews.com/rss", "category": "general", "region": "UK/Europe", "lang": "en" },
+    { "id": "gen-eu-portugalpost", "name": "The Portugal Post", "url": "https://theportugalpost.com/rss.xml", "category": "general", "region": "UK/Europe", "lang": "en" },
+    { "id": "gen-eu-irishindep", "name": "Irish Independent", "url": "https://www.independent.ie/rss/", "category": "general", "region": "UK/Europe", "lang": "en" },
 
     { "id": "gen-na-npr", "name": "NPR World News", "url": "https://feeds.npr.org/1004/rss.xml", "category": "general", "region": "North America", "lang": "en" },
     { "id": "gen-na-pbs", "name": "PBS NewsHour World", "url": "https://www.pbs.org/newshour/feeds/rss/world", "category": "general", "region": "North America", "lang": "en" },
@@ -29,6 +33,8 @@
     { "id": "gen-ap-japantoday", "name": "Japan Today", "url": "https://japantoday.com/feed", "category": "general", "region": "Asia-Pacific", "lang": "en" },
     { "id": "gen-ap-koreatimes", "name": "The Korea Times World", "url": "https://www.koreatimes.co.kr/www/rss/world.xml", "category": "general", "region": "Asia-Pacific", "lang": "en" },
     { "id": "gen-ap-bangkokpost", "name": "Bangkok Post Top Stories", "url": "https://www.bangkokpost.com/rss/data/topstories.xml", "category": "general", "region": "Asia-Pacific", "lang": "en" },
+    { "id": "gen-ap-smh", "name": "Sydney Morning Herald", "url": "https://www.smh.com.au/rss/feed.xml", "category": "general", "region": "Asia-Pacific", "lang": "en" },
+    { "id": "gen-ap-stuff", "name": "Stuff NZ", "url": "https://www.stuff.co.nz/feed/", "category": "general", "region": "Asia-Pacific", "lang": "en" },
 
     { "id": "gen-af-allafrica", "name": "AllAfrica Latest", "url": "https://allafrica.com/tools/headlines/rdf/latest/headlines.rdf", "category": "general", "region": "Africa", "lang": "en" },
     { "id": "gen-af-news24", "name": "News24 South Africa", "url": "https://feeds.24.com/articles/news24/World/rss", "category": "general", "region": "Africa", "lang": "en" },
@@ -52,6 +58,9 @@
     { "id": "tech-slashdot", "name": "Slashdot", "url": "https://rss.slashdot.org/Slashdot/slashdotMain", "category": "tech", "region": "Global", "lang": "en" },
     { "id": "tech-ieee", "name": "IEEE Spectrum", "url": "https://spectrum.ieee.org/feeds/feed.rss", "category": "tech", "region": "Global", "lang": "en" },
     { "id": "tech-restofworld", "name": "Rest of World Tech", "url": "https://restofworld.org/feed/latest/", "category": "tech", "region": "Global", "lang": "en" },
+    { "id": "tech-joomlacommunity", "name": "Joomla Community", "url": "https://community.joomla.org/blogs/community.feed", "category": "tech", "region": "Global", "lang": "en" },
+    { "id": "tech-netflix", "name": "Netflix Tech Blog", "url": "https://techblog.netflix.com/feed.xml", "category": "tech", "region": "Global", "lang": "en" },
+    { "id": "tech-meta", "name": "Engineering at Meta", "url": "https://engineering.fb.com/feed/", "category": "tech", "region": "Global", "lang": "en" },
 
     { "id": "cyber-krebs", "name": "Krebs on Security", "url": "https://krebsonsecurity.com/feed/", "category": "cyber", "region": "North America", "lang": "en" },
     { "id": "cyber-thn", "name": "The Hacker News", "url": "https://feeds.feedburner.com/TheHackersNews", "category": "cyber", "region": "Global", "lang": "en" },
@@ -65,6 +74,11 @@
     { "id": "cyber-cluley", "name": "Graham Cluley", "url": "https://grahamcluley.com/feed/", "category": "cyber", "region": "UK/Europe", "lang": "en" },
     { "id": "cyber-malwarebytes", "name": "Malwarebytes Labs", "url": "https://www.malwarebytes.com/blog/feed/index.xml", "category": "cyber", "region": "Global", "lang": "en" },
     { "id": "cyber-talos", "name": "Cisco Talos Intelligence", "url": "https://blog.talosintelligence.com/rss/", "category": "cyber", "region": "Global", "lang": "en" },
+    { "id": "cyber-secureworld", "name": "SecureWorld News", "url": "https://www.secureworld.io/industry-news/rss.xml", "category": "cyber", "region": "North America", "lang": "en" },
+    { "id": "cyber-cmalliance", "name": "CM Alliance Cybersecurity", "url": "https://www.cm-alliance.com/cybersecurity-blog/rss.xml", "category": "cyber", "region": "Global", "lang": "en" },
+    { "id": "cyber-microsoft", "name": "Microsoft Security Blog", "url": "https://www.microsoft.com/en-us/security/blog/feed/", "category": "cyber", "region": "North America", "lang": "en" },
+    { "id": "cyber-projectzero", "name": "Google Project Zero", "url": "https://googleprojectzero.blogspot.com/feeds/posts/default", "category": "cyber", "region": "Global", "lang": "en" },
+    { "id": "cyber-aws", "name": "AWS Security Blog", "url": "https://aws.amazon.com/blogs/security/feed/", "category": "cyber", "region": "North America", "lang": "en" },
 
     { "id": "ai-openai", "name": "OpenAI News", "url": "https://openai.com/news/rss.xml", "category": "ai", "region": "North America", "lang": "en" },
     { "id": "ai-huggingface", "name": "Hugging Face Blog", "url": "https://huggingface.co/blog/feed.xml", "category": "ai", "region": "Global", "lang": "en" },
@@ -74,9 +88,10 @@
     { "id": "ai-unite", "name": "Unite.AI", "url": "https://www.unite.ai/feed/", "category": "ai", "region": "Global", "lang": "en" },
     { "id": "ai-decoder", "name": "The Decoder", "url": "https://the-decoder.com/feed/", "category": "ai", "region": "UK/Europe", "lang": "en" },
     { "id": "ai-venturebeat", "name": "VentureBeat AI", "url": "https://venturebeat.com/category/ai/feed/", "category": "ai", "region": "North America", "lang": "en" },
-    { "id": "ai-ainews", "name": "AI News", "url": "https://www.artificialintelligence-news.com/feed/", "category": "ai", "region": "UK/Europe", "lang": "en" },
+    { "id": "ai-ainews", "name": "AI News", "url": "https://www.financialexpress.com/", "category": "ai", "region": "UK/Europe", "lang": "en" },
     { "id": "ai-bair", "name": "Berkeley AI Research Blog", "url": "https://bair.berkeley.edu/blog/feed.xml", "category": "ai", "region": "North America", "lang": "en" },
     { "id": "ai-lastweekinai", "name": "Last Week in AI", "url": "https://lastweekin.ai/feed", "category": "ai", "region": "Global", "lang": "en" },
     { "id": "ai-simonwillison", "name": "Simon Willison Weblog", "url": "https://simonwillison.net/atom/everything/", "category": "ai", "region": "North America", "lang": "en" }
   ]
 }
+
