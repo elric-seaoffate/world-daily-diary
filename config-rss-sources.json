@@ -88,7 +88,7 @@
     { "id": "ai-unite", "name": "Unite.AI", "url": "https://www.unite.ai/feed/", "category": "ai", "region": "Global", "lang": "en" },
     { "id": "ai-decoder", "name": "The Decoder", "url": "https://the-decoder.com/feed/", "category": "ai", "region": "UK/Europe", "lang": "en" },
     { "id": "ai-venturebeat", "name": "VentureBeat AI", "url": "https://venturebeat.com/category/ai/feed/", "category": "ai", "region": "North America", "lang": "en" },
-    { "id": "ai-ainews", "name": "AI News", "url": "https://www.financialexpress.com/", "category": "ai", "region": "UK/Europe", "lang": "en" },
+    { "id": "ai-ainews", "name": "AI News", "url": "https://www.artificialintelligence-news.com/feed/", "category": "ai", "region": "UK/Europe", "lang": "en" },
     { "id": "ai-bair", "name": "Berkeley AI Research Blog", "url": "https://bair.berkeley.edu/blog/feed.xml", "category": "ai", "region": "North America", "lang": "en" },
     { "id": "ai-lastweekinai", "name": "Last Week in AI", "url": "https://lastweekin.ai/feed", "category": "ai", "region": "Global", "lang": "en" },
     { "id": "ai-simonwillison", "name": "Simon Willison Weblog", "url": "https://simonwillison.net/atom/everything/", "category": "ai", "region": "North America", "lang": "en" }

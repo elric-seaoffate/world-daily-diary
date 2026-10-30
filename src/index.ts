@@ -48,8 +48,9 @@ type QueuePayload = StoryQueueMessage | IngestBatchQueueMessage;
 
 const CONTROL_PAGE_ID = "319";
 const SHARD_SIZE = 7;
-const MAX_SHARDS = 12;
+const MAX_SHARDS = 16; // Supports up to 112 feeds (84 feeds = 12 shards: s0..s11)
 
+// Includes generic journalism, legal, cyber, and AI category words so unrelated stories never false-merge
 const STOP_WORDS = new Set([
 	'the', 'and', 'of', 'to', 'in', 'a', 'for', 'on', 'with', 'as', 'by', 'at', 'from',
 	'an', 'be', 'this', 'that', 'it', 'is', 'was', 'are', 'says', 'said', 'will', 'new',
@@ -59,22 +60,27 @@ const STOP_WORDS = new Set([
 	'also', 'most', 'first', 'last', 'year', 'years', 'world', 'news', 'report', 'reports',
 	'live', 'update', 'updates', 'official', 'officials', 'least', 'between', 'two', 'three',
 	'model', 'models', 'open', 'weight', 'weights', 'multimodal', 'flaw', 'flaws', 'bug', 'bugs',
-	'patch', 'patches', 'patched', 'exploit', 'exploits', 'security', 'cyber', 'system', 'systems',
-	'release', 'releases', 'launch', 'launches', 'build', 'chain', 'chains', 'working', 'agent',
-	'agents', 'using', 'under', 'state', 'government', 'leader', 'leaders', 'country', 'people'
+	'patch', 'patches', 'patched', 'exploit', 'exploits', 'exploited', 'security', 'cyber', 'system',
+	'systems', 'release', 'releases', 'launch', 'launches', 'build', 'built', 'chain', 'chains',
+	'working', 'agent', 'agents', 'using', 'under', 'state', 'government', 'leader', 'leaders',
+	'country', 'people', 'court', 'high', 'judge', 'trial', 'case', 'loses', 'wins', 'alleged',
+	'hacker', 'hackers', 'malware', 'steal', 'plant', 'critical', 'vulnerability', 'vulnerabilities',
+	'party', 'parties', 'political', 'drama', 'unfolds', 'begins', 'continues', 'search', 'days'
 ]);
 
-// Canonicalize common news synonyms so "crash"/"collide"/"collision" and "dead"/"killed" produce identical stems
+// Canonicalize common news synonyms so multi-angle headlines on the same event produce identical stems
 const SYNONYM_MAP: Record<string, string> = {
-	'killed': 'dead', 'kills': 'dead', 'kill': 'dead', 'deaths': 'dead', 'death': 'dead', 'deadly': 'dead', 'fatal': 'dead',
-	'collide': 'crash', 'collides': 'crash', 'collision': 'crash', 'crashes': 'crash', 'crashed': 'crash', 'derail': 'crash',
+	'killed': 'dead', 'kills': 'dead', 'kill': 'dead', 'deaths': 'dead', 'death': 'dead', 'deadly': 'dead', 'fatal': 'dead', 'mourning': 'dead',
+	'collide': 'crash', 'collides': 'crash', 'collision': 'crash', 'crashes': 'crash', 'crashed': 'crash', 'derail': 'crash', 'accident': 'crash', 'wreckage': 'crash',
 	'trains': 'train', 'rail': 'train', 'railway': 'train',
-	'elections': 'elect', 'election': 'elect', 'voters': 'elect', 'voter': 'elect', 'votes': 'elect', 'vote': 'elect', 'voting': 'elect', 'ballots': 'elect', 'ballot': 'elect', 'polls': 'elect', 'poll': 'elect',
+	'elections': 'elect', 'election': 'elect', 'voters': 'elect', 'voter': 'elect', 'votes': 'elect', 'vote': 'elect', 'voting': 'elect', 'ballots': 'elect', 'ballot': 'elect', 'polls': 'elect', 'poll': 'elect', 'counted': 'elect', 'count': 'elect', 'majority': 'elect', 'seats': 'elect',
 	'israeli': 'israe', 'israelis': 'israe',
+	'brazilian': 'brazi', 'brazils': 'brazi',
+	'spanish': 'spain',
 	'serbian': 'belgr', 'serbia': 'belgr', 'belgrade': 'belgr',
 	'shoots': 'shoot', 'shot': 'shoot', 'shooting': 'shoot',
 	'assailant': 'attac', 'attacker': 'attac', 'attacks': 'attac', 'attacked': 'attac',
-	'flee': 'leave', 'flees': 'leave', 'fled': 'leave', 'leaves': 'leave', 'left': 'leave', 'heads': 'leave', 'depart': 'leave',
+	'flee': 'leave', 'flees': 'leave', 'fled': 'leave', 'leaves': 'leave', 'left': 'leave', 'heads': 'leave', 'depart': 'leave', 'arrives': 'leave', 'arrived': 'leave',
 	'talks': 'call', 'talk': 'call', 'speaks': 'call', 'phone': 'call',
 	'truce': 'cease', 'ceasefire': 'cease'
 };
@@ -158,6 +164,16 @@ function computeStemsOnce(title: string): string[] {
 	return Array.from(new Set(stems));
 }
 
+function countSharedStems(stemsA: string[], stemsB: string[]): number {
+	if (!stemsA?.length || !stemsB?.length) return 0;
+	const setB = new Set(stemsB);
+	let shared = 0;
+	for (const s of stemsA) {
+		if (setB.has(s)) shared++;
+	}
+	return shared;
+}
+
 function mergeTwoArticles(masterArt: any, incomingArt: any): void {
 	masterArt.syndication_velocity = (masterArt.syndication_velocity || 1) + (incomingArt.syndication_velocity || 1);
 	const masterSources = (masterArt.source_id || 'Unknown').split(' ; ').filter(Boolean);
@@ -166,14 +182,12 @@ function mergeTwoArticles(masterArt: any, incomingArt: any): void {
 	masterArt.source_id = Array.from(combinedSources).join(' ; ');
 
 	if (incomingArt.summary && !masterArt.summary.includes(incomingArt.summary.slice(0, 80))) {
-		masterArt.summary = `${masterArt.summary}\n---\nUpdate Source: ${incomingArt.source_id}\n${incomingArt.summary}`.slice(0, 3500);
+		masterArt.summary = `${masterArt.summary}\n---\n[${incomingArt.source_id} — ${incomingArt.title}]: ${incomingArt.summary}`.slice(0, 3500);
 	}
 	if (incomingArt.published_at && incomingArt.published_at > (masterArt.published_at || 0)) {
 		masterArt.published_at = incomingArt.published_at;
 	}
-	if (incomingArt._stems && masterArt._stems) {
-		masterArt._stems = Array.from(new Set([...masterArt._stems, ...incomingArt._stems]));
-	}
+	// Intentionally keep masterArt._stems focused on the master headline so clusters never snowball into unrelated topics
 }
 
 async function parseFeedXml(xml: string, source: RssSource, ingestedDate: string): Promise<any[]> {
@@ -361,7 +375,7 @@ async function handleHourlyIngest(env: Env, cycleId: string) {
 }
 
 async function runLlmPrompt(env: Env, baseSystemPrompt: string, userContent: string): Promise<string> {
-	const strictSystemPrompt = `${baseSystemPrompt}\n\n[CRITICAL INSTRUCTION]: Base your analysis strictly on the provided sources. Write ONLY continuous, flowing paragraphs of prose. Do NOT output any titles, headings, subheadings, bullet points, numbered lists, bold labels, or meta-commentary.`;
+	const strictSystemPrompt = `${baseSystemPrompt}\n\n[CRITICAL INSTRUCTION]: Focus strictly on the primary event named in the Headline. Ignore any unrelated or tangential news items that may appear in roundup summaries. Write ONLY continuous, flowing paragraphs of prose. Do NOT output any titles, headings, subheadings, bullet points, numbered lists, bold labels, or meta-commentary.`;
 	try {
 		const response = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
 			messages: [
@@ -369,7 +383,7 @@ async function runLlmPrompt(env: Env, baseSystemPrompt: string, userContent: str
 				{ role: 'user', content: userContent }
 			],
 			max_tokens: 900,
-			temperature: 0.25
+			temperature: 0.2
 		});
 		if (response && typeof response.response === 'string' && response.response.trim().length > 0) {
 			return cleanLlmProse(response.response);
@@ -382,7 +396,7 @@ async function runLlmPrompt(env: Env, baseSystemPrompt: string, userContent: str
 					{ role: 'user', content: userContent }
 				],
 				max_tokens: 900,
-				temperature: 0.25
+				temperature: 0.2
 			});
 			if (fallback && typeof fallback.response === 'string' && fallback.response.trim().length > 0) {
 				return cleanLlmProse(fallback.response);
@@ -436,7 +450,8 @@ function preClusterAndSortByTopic(articles: any[]): { multiTopicArticles: any[];
 
 		for (const s of stems) {
 			const matches = stemToIndices.get(s) || [];
-			if (matches.length > 35) continue;
+			// Raised to 120 so 24-hour country/actor stems (Israel, Brazil, Spain) are never skipped
+			if (matches.length > 120) continue;
 			for (const idx of matches) {
 				if (idx <= i || absorbed[idx]) continue;
 				overlapCounts.set(idx, (overlapCounts.get(idx) || 0) + 1);
@@ -446,7 +461,7 @@ function preClusterAndSortByTopic(articles: any[]): { multiTopicArticles: any[];
 		for (const [candidateIdx, sharedCount] of overlapCounts.entries()) {
 			const cand = articles[candidateIdx];
 			const minLen = Math.min(stems.length, (cand._stems || []).length);
-			// Merge when 3+ non-generic canonical stems match (e.g. spain + train + crash + dead)
+			// Merge when >= 3 canonical stems match (e.g. flavi + bolso + brazi, or spain + train + crash)
 			if (sharedCount >= 3 || (minLen >= 3 && sharedCount / minLen >= 0.65)) {
 				mergeTwoArticles(master, cand);
 				absorbed[candidateIdx] = 1;
@@ -483,7 +498,7 @@ function preClusterAndSortByTopic(articles: any[]): { multiTopicArticles: any[];
 async function clusterSmallGroupWithLlm(env: Env, chunk: any[]): Promise<any[]> {
 	if (chunk.length <= 1) return chunk;
 	const headlineList = chunk.map((art, idx) => `[${idx}] ${art.title}`).join('\n');
-	const systemPrompt = `You are a strict news editor. Group headlines that report on the EXACT same real-world event (for example, two headlines about the same train crash, the same election result, or the same embassy attack). Never merge two different products or two unrelated events. Return ONLY a JSON array of integer arrays for duplicate groups of 2 or more, like [[0, 2], [4, 5]]. If none match, return [].`;
+	const systemPrompt = `You are a strict news editor. Group headlines ONLY if they report on the EXACT same specific event (such as the same election, the same train crash, or the same leader's trip). Never merge two different court cases, two different cyber vulnerabilities, or two different companies. Return ONLY a JSON array of integer arrays for duplicate groups of 2 or more, like [[0, 2], [4, 5]]. If none match, return [].`;
 
 	let groups: number[][] | null = null;
 	try {
@@ -508,13 +523,14 @@ async function clusterSmallGroupWithLlm(env: Env, chunk: any[]): Promise<any[]> 
 			if (validIndices.length < 2) continue;
 
 			const masterIdx = validIndices[0];
-			const masterStems = new Set<string>(chunk[masterIdx]._stems || []);
+			const masterStems: string[] = chunk[masterIdx]._stems || [];
 
+			// ANTI-FRANKENSTEIN GATE: Require at least 2 shared non-generic stems between headlines to allow an LLM merge
 			const verifiedSecondaries: number[] = [];
 			for (let j = 1; j < validIndices.length; j++) {
 				const idx = validIndices[j];
 				const candStems: string[] = chunk[idx]._stems || [];
-				if (candStems.some(s => masterStems.has(s))) {
+				if (countSharedStems(masterStems, candStems) >= 2) {
 					verifiedSecondaries.push(idx);
 				}
 			}
@@ -539,7 +555,7 @@ async function clusterSmallGroupWithLlm(env: Env, chunk: any[]): Promise<any[]> 
 	return mergedChunk;
 }
 
-async function groupStoriesHierarchically(env: Env, rawArticles: any[]): Promise<Map<string, any>> {
+async function groupStoriesHierarchically(env: Env, rawArticles: any[]): Promise> {
 	const byCategory = new Map<string, any[]>();
 	for (const art of rawArticles) {
 		const cat = art.category_hint || 'general';
@@ -640,8 +656,8 @@ async function handleDailyDispatch(env: Env, cycleId: string) {
 	}
 
 	const fallbackSnapshots: ({ items: any[] } | null)[] = [];
-	for (let i = 0; i < missingShardKeys.length; i += 30) {
-		const batch = missingShardKeys.slice(i, i + 30);
+	for (let i = 0; i < missingShardKeys.length; i += 32) {
+		const batch = missingShardKeys.slice(i, i + 32);
 		const res = await Promise.all(
 			batch.map(k => env.OPERATIONAL_KV.get(k, 'json') as Promise<{ items: any[] } | null>)
 		);
@@ -679,7 +695,6 @@ async function handleDailyDispatch(env: Env, cycleId: string) {
 	const allArticlesMap = await groupStoriesHierarchically(env, filteredRawArticles);
 	const uniqueArticles = Array.from(allArticlesMap.values()).filter(art => art && art.article_id);
 
-	// CRITICAL FIX: Clear today's un-clustered rows from D1 articles before inserting the cleanly merged clusters
 	await env.DB.prepare(`DELETE FROM articles WHERE ingested_date = ?`).bind(ingestedDate).run();
 
 	const batchSize = 50;
@@ -714,6 +729,13 @@ async function handleDailyDispatch(env: Env, cycleId: string) {
 	const overflow: any[] = [];
 	const globalMax = catData.global_max_stories || 24;
 
+	// Final safety check during selection: never pick two stories on the same day that share >= 2 canonical stems
+	const pickedStemsList: string[][] = [];
+	const isDuplicateOfPicked = (candidateTitle: string): boolean => {
+		const candStems = computeStemsOnce(candidateTitle);
+		return pickedStemsList.some(existingStems => countSharedStems(candStems, existingStems) >= 2);
+	};
+
 	for (const cat of catData.categories) {
 		const { results } = await env.DB.prepare(`
 			SELECT article_id, canonical_url, title, summary, source_id, category_hint, syndication_velocity, published_at
@@ -725,24 +747,31 @@ async function handleDailyDispatch(env: Env, cycleId: string) {
 			  )
 			ORDER BY syndication_velocity DESC, published_at DESC
 			LIMIT ?
-		`).bind(ingestedDate, cat.id, ingestedDate, cat.max_stories || 5).all();
+		`).bind(ingestedDate, cat.id, ingestedDate, (cat.max_stories || 5) * 2).all();
 
 		const items = (results || []) as any[];
-		items.slice(0, cat.min_stories).forEach(i => {
-			if (!pickedIds.has(i.article_id)) {
-				picked.push(i);
-				pickedIds.add(i.article_id);
+		let catPickedCount = 0;
+		for (const item of items) {
+			if (pickedIds.has(item.article_id) || isDuplicateOfPicked(item.title)) continue;
+			if (catPickedCount < cat.min_stories) {
+				picked.push(item);
+				pickedIds.add(item.article_id);
+				pickedStemsList.push(computeStemsOnce(item.title));
+				catPickedCount++;
+			} else if (catPickedCount < (cat.max_stories || 5)) {
+				overflow.push(item);
+				catPickedCount++;
 			}
-		});
-		items.slice(cat.min_stories).forEach(i => overflow.push(i));
+		}
 	}
 
 	overflow.sort((a, b) => b.syndication_velocity - a.syndication_velocity);
 	for (const item of overflow) {
 		if (picked.length >= globalMax) break;
-		if (!pickedIds.has(item.article_id)) {
+		if (!pickedIds.has(item.article_id) && !isDuplicateOfPicked(item.title)) {
 			picked.push(item);
 			pickedIds.add(item.article_id);
+			pickedStemsList.push(computeStemsOnce(item.title));
 		}
 	}
 
@@ -803,7 +832,6 @@ async function handlePublish(env: Env, cycleId: string) {
 	let healthAuditMarkdown = `\n\n---\n\n## Operational Feed Health & Source Audit Ledger\n\n| Source Publisher & Region | Status / Item Yield |\n| :--- | :--- |\n`;
 	try {
 		const healthKeys = [
-			`rss-health-${ingestedDate}-01`,
 			`rss-health-${ingestedDate}`,
 			...Array.from({ length: MAX_SHARDS }, (_, s) => `rss-health-${ingestedDate}-s${s}`)
 		];
@@ -874,21 +902,19 @@ export default {
 		for (const message of batch.messages) {
 			const payload = message.body;
 
-			// Route 1: Parallel RSS Ingestion Shard (7 feeds per worker)
 			if (payload.job_type === 'ingest_shard') {
 				await pollFeedShardAndSave(
 					env,
 					payload.cycle_id,
 					payload.ingested_date,
 					payload.shard_index,
-					payload.total_shards || 10,
+					payload.total_shards || 12,
 					payload.sources
 				);
 				message.ack();
 				continue;
 			}
 
-			// Route 2: Daily Story Synthesis + Separate Post-Creation Dual-Archive Historical Context LLM
 			const msg = payload as StoryQueueMessage;
 
 			const formatter = new Intl.DateTimeFormat('en-GB', {
@@ -902,7 +928,7 @@ export default {
 			});
 			const formattedTime = formatter.format(new Date((msg.published_at || Math.floor(Date.now() / 1000)) * 1000));
 
-			const userContext = `Headline: ${msg.title}\nCategory: ${msg.category_name}\nReported Time: ${formattedTime}\nVerified Contributing Sources: ${msg.source_id}\nSyndication Velocity (Update Count): ${msg.syndication_velocity}\nComposite Summaries & Updates across Feeds:\n${msg.summary}\nURL: ${msg.canonical_url}`;
+			const userContext = `Primary Headline: ${msg.title}\nCategory: ${msg.category_name}\nReported Time: ${formattedTime}\nVerified Contributing Sources: ${msg.source_id}\nSyndication Velocity (Update Count): ${msg.syndication_velocity}\nSource Material (Focus ONLY on reports matching the Primary Headline):\n${msg.summary}\nURL: ${msg.canonical_url}`;
 
 			// Step 1: Primary LLM creates the event report and impact/framing analysis
 			const [eventReport, analysisReport] = await Promise.all([
@@ -910,44 +936,42 @@ export default {
 				runLlmPrompt(env, msg.prompt_analysis, userContext)
 			]);
 
-			// Step 2: Query our generated diary history (published_stories) AND the 90-day raw RSS archive (articles)
-			const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+			// Step 2: Query historical records strictly >= 3 days older than msg.ingested_date so yesterday's breaking news never echoes
+			const ingestedMs = Date.parse(`${msg.ingested_date}T00:00:00Z`) || Date.now();
+			const threeDaysBeforeIngest = new Date(ingestedMs - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+			const ninetyDaysBeforeIngest = new Date(ingestedMs - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
 			const [{ results: pastDiaryStories }, { results: pastRssArticles }] = await Promise.all([
 				env.DB.prepare(`
-					SELECT ingested_date, headline, SUBSTR(markdown_body, 1, 400) AS excerpt
+					SELECT ingested_date, headline
 					FROM published_stories
-					WHERE category_id = ? AND ingested_date < ? AND ingested_date >= ?
-					ORDER BY ingested_date DESC LIMIT 30
-				`).bind(msg.category_id, msg.ingested_date, ninetyDaysAgo).all(),
+					WHERE category_id = ? AND ingested_date <= ? AND ingested_date >= ?
+					ORDER BY ingested_date DESC LIMIT 40
+				`).bind(msg.category_id, threeDaysBeforeIngest, ninetyDaysBeforeIngest).all(),
 				env.DB.prepare(`
-					SELECT ingested_date, title, source_id, SUBSTR(summary, 1, 300) AS summary_snippet
+					SELECT ingested_date, title, source_id, SUBSTR(summary, 1, 280) AS summary_snippet
 					FROM articles
-					WHERE category_hint = ? AND ingested_date < ? AND ingested_date >= ?
+					WHERE category_hint = ? AND ingested_date <= ? AND ingested_date >= ?
 					ORDER BY syndication_velocity DESC, published_at DESC LIMIT 80
-				`).bind(msg.category_id, msg.ingested_date, ninetyDaysAgo).all()
+				`).bind(msg.category_id, threeDaysBeforeIngest, ninetyDaysBeforeIngest).all()
 			]);
 
-			const currentStems = new Set(computeStemsOnce(msg.title));
+			const currentStems = computeStemsOnce(msg.title);
 
-			// Require >= 2 matching stems AND ensure it isn't the exact same breaking news headline from late yesterday
-			const isDistinctEarlierStory = (pastTitle: string) => {
+			// Require >= 3 shared specific stems so coincidental words (like "key" or "apple") don't trigger unrelated history
+			const isTrueHistoricalPrecursor = (pastTitle: string) => {
 				const pastStems = computeStemsOnce(pastTitle);
-				let shared = 0;
-				for (const st of pastStems) if (currentStems.has(st)) shared++;
-				const minLen = Math.min(currentStems.size, pastStems.length);
-				// Must share >= 2 topic stems, but not be >85% identical (which is just yesterday's first report of the same breaking event)
-				return shared >= 2 && (minLen === 0 || (shared / minLen) < 0.85);
+				return countSharedStems(currentStems, pastStems) >= 3;
 			};
 
 			const matchingDiary = (pastDiaryStories || [])
-				.filter((s: any) => isDistinctEarlierStory(String(s.headline || '')))
+				.filter((s: any) => isTrueHistoricalPrecursor(String(s.headline || '')))
 				.slice(0, 4);
 
 			const matchingRss = (pastRssArticles || [])
-				.filter((a: any) => isDistinctEarlierStory(String(a.title || '')))
+				.filter((a: any) => isTrueHistoricalPrecursor(String(a.title || '')))
 				.slice(0, 6);
 
-			// Step 3: Separate Archivist LLM synthesizes ONLY the historical records (without being fed today's full essay to prevent echoing)
 			let historicReportRaw = 'NONE';
 			if (matchingDiary.length > 0 || matchingRss.length > 0) {
 				let archiveDossier = '';
@@ -960,7 +984,7 @@ export default {
 						matchingRss.map((a: any) => `[${a.ingested_date} | ${a.source_id}] ${a.title}: ${String(a.summary_snippet || '').replace(/\s+/g, ' ')}`).join('\n');
 				}
 
-				const historyPrompt = `You are a strict historical intelligence archivist. Today's breaking headline is: "${msg.title}". Below are older records from our 90-day archive. If these older records genuinely document earlier precursor events or prior background to today's story, write a single concise paragraph summarizing ONLY what happened in those earlier archived reports to give the reader historical context. Do NOT re-summarize today's event, and do NOT claim today's event happened in the past. If the older records are merely the same breaking story or unrelated, output the single word NONE and nothing else. Write only flowing prose with no headers, bullet points, or lists.`;
+				const historyPrompt = `You are a strict historical intelligence archivist. Today's breaking headline is: "${msg.title}". Below are older records from our 90-day archive. If these older records genuinely document earlier precursor events to today's exact story, write a single concise paragraph summarizing ONLY those earlier archived events and their dates as background context. If the older records are about a different topic or different product, output the single word NONE and nothing else. Write only flowing prose with no headers, bullet points, or lists.`;
 
 				historicReportRaw = await runLlmPrompt(env, historyPrompt, archiveDossier);
 			}
@@ -979,7 +1003,7 @@ export default {
 				!cleanHistory.toLowerCase().includes('none of the') &&
 				!cleanHistory.toLowerCase().includes('no direct connection') &&
 				!cleanHistory.toLowerCase().includes('not directly related') &&
-				!cleanHistory.toLowerCase().includes('coincidentally') &&
+				!cleanHistory.toLowerCase().includes('different topic') &&
 				!cleanHistory.toLowerCase().includes('ai synthesis unavailable') &&
 				!cleanHistory.toLowerCase().includes('summary unavailable');
 
