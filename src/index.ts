@@ -555,7 +555,7 @@ async function clusterSmallGroupWithLlm(env: Env, chunk: any[]): Promise<any[]> 
 	return mergedChunk;
 }
 
-async function groupStoriesHierarchically(env: Env, rawArticles: any[]): Promise> {
+async function groupStoriesHierarchically(env: Env, rawArticles: any[]) {
 	const byCategory = new Map<string, any[]>();
 	for (const art of rawArticles) {
 		const cat = art.category_hint || 'general';
